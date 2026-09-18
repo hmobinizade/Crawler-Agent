@@ -1447,7 +1447,10 @@ def generate(job_id: str, discovery: DiscoveryResult, out_dir: str='generated') 
     stem='09_crawler'
     fields=[f.model_dump() for f in discovery.fields]
     required=[f.path for f in discovery.fields if f.required]
-    template=STATIC_TEMPLATE if discovery.method=='requests_bs4' else PLAYWRIGHT_TEMPLATE
+    # Crawlers are Playwright-only in the current product. The custom generator
+    # remains an escape hatch for site-specific logic, but it never emits a static
+    # Requests/BeautifulSoup crawler.
+    template=PLAYWRIGHT_TEMPLATE
     code=template.replace('__START_URL__',repr(discovery.url)).replace('__ROOT__',repr(discovery.url))
     code=code.replace('__OUT__',repr(str(folder/f'{stem}.jsonl'))).replace('__USER_DATA_DIR__',repr(str(folder/'.browser-profile')))
     code=code.replace('__FIELDS__',pprint.pformat(fields,width=120,sort_dicts=False)).replace('__REQUIRED__',pprint.pformat(required,width=120,sort_dicts=False))

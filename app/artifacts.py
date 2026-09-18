@@ -79,6 +79,7 @@ class ArtifactStore:
         codegen_prompt: str,
         llm_response: dict[str, Any],
         validation: dict[str, Any],
+        custom_script: str | None = None,
     ) -> list[str]:
         directory = self.job_dir(url, job_id)
         files: list[str] = []
@@ -86,6 +87,15 @@ class ArtifactStore:
         files.append(self.write_json(directory / "08_codegen_llm_response.json", llm_response))
         files.append(self.write_text(directory / "09_crawler.py", code))
         files.append(self.write_json(directory / "10_codegen_validation.json", validation))
+        if custom_script:
+            structure_path = directory / "02_extraction_structure.json"
+            if structure_path.exists():
+                try:
+                    structure = json.loads(structure_path.read_text(encoding="utf-8"))
+                    structure["execution"] = {"mode": "custom", "script": custom_script.replace("\\", "/")}
+                    files.append(self.write_json(structure_path, structure))
+                except Exception:
+                    pass
         manifest_path = directory / "manifest.json"
         manifest: dict[str, Any] = {}
         if manifest_path.exists():

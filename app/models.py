@@ -21,12 +21,9 @@ class CodegenRequest(BaseModel):
 
 
 class CrawlRequest(BaseModel):
-    source_job_id: str | None = None
-    structure_id: str | None = None
-    structure: dict[str, Any] | None = None
-    mode: Literal["generic", "custom"] = "generic"
-    url: HttpUrl | None = None
-    max_pages: int = Field(default=20, ge=1, le=500)
+    """Run a crawler from exactly one URL + one Extraction Structure."""
+    url: HttpUrl
+    structure: dict[str, Any] = Field(min_length=1)
     timeout_seconds: int = Field(default=240, ge=30, le=1800)
     headless: bool = True
 

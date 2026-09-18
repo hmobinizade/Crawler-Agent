@@ -4,90 +4,31 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-08-26-121Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-11-39-722Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-31-56-923Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T10-05-20-924Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T10-18-22-926Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-52-43-624Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-56-32-648Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-58-30-357Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T19-01-03-108Z.log" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-08-30-419Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-11-40-553Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-31-57-532Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-05-21-825Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-18-23-756Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-38-53-159Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-52-44-269Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-56-33-401Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-58-31-115Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T19-01-03-805Z.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/__init__.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/adaptive.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/codegen.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/codegen_fix.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/crawler_runner.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/extractor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/generic_runtime.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/host_registry.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/llm.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/local_registry.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/mcp_client.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/prompts.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/session_manager.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/settings.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/static_extractor.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/store.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/app/structure_registry.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/codegen_full.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/app.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/index.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/style.css" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/app.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/codegen.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/codegen.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/crawler.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/crawler.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/discover.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/discover.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/generated.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/generated.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/index.html" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/studio.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/patch.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/patch2.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/patch_ui.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/pytest.ini" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/test_results.txt" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_adaptive_static.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_artifact_browser.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_codegen.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_codegen_quality.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_extractor_helpers.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_generic_runtime.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_regressions.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_structure_registry.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_v10_wiring.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_v15_codegen_agent.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_v19_workflows.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_validate_analysis.py" afterDir="false" />
+    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="initial.">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/artifacts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/codegen.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/codegen_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/crawler_runner.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/crawler_runner.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/generic_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/generic_runtime.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/structure_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/structure_registry.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/frontend/static/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/frontend/static/index.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/crawler.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/crawler.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/crawler.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/crawler.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/generated.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/generated.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_codegen_quality.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_codegen_quality.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_generic_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_generic_runtime.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_v19_workflows.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v19_workflows.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -104,6 +45,18 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;hmobinizade&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/hmobinizade/Crawler-Agent.git&quot;,
+    &quot;accountId&quot;: &quot;7915ee60-c093-48e8-998e-617c25d2866c&quot;
+  }
+}</component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 4
 }</component>
@@ -112,27 +65,27 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.codegen.executor": "Run",
-    "Python.crawler_7a299e7d17a1.executor": "Run",
-    "Python.crawler_c5f4995bc3ef.executor": "Run",
-    "Python.site_crawler.executor": "Run",
-    "Python.test_mcp.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "master",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "F:/work/rcdat/agantic/agentic_playwright_mcp/app",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "two.files.diff.last.used.file": "F:/work/rcdat/agantic/agentic_playwright_mcp/generated/farsnews.ir/job_c4700add92a2/09_crawler1.py",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.codegen.executor&quot;: &quot;Run&quot;,
+    &quot;Python.crawler_7a299e7d17a1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.crawler_c5f4995bc3ef.executor&quot;: &quot;Run&quot;,
+    &quot;Python.site_crawler.executor&quot;: &quot;Run&quot;,
+    &quot;Python.test_mcp.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;F:/work/rcdat/agantic/agentic_playwright_mcp/app&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;two.files.diff.last.used.file&quot;: &quot;F:/work/rcdat/agantic/agentic_playwright_mcp/generated/farsnews.ir/job_c4700add92a2/09_crawler1.py&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="F:\work\rcdat\agantic\agentic_playwright_mcp\app" />
@@ -155,19 +108,40 @@
       <option name="presentableId" value="Default" />
       <updated>1788945272340</updated>
       <workItem from="1788945274957" duration="14624000" />
-      <workItem from="1789377844310" duration="48162000" />
+      <workItem from="1789377844310" duration="52157000" />
     </task>
+    <task id="LOCAL-00001" summary="initial.">
+      <option name="closed" value="true" />
+      <created>1789749052069</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1789749052069</updated>
+    </task>
+    <task id="LOCAL-00002" summary="initial.">
+      <option name="closed" value="true" />
+      <created>1789749375838</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1789749375838</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="initial." />
+    <option name="LAST_COMMIT_MESSAGE" value="initial." />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/main.py</url>
-          <line>318</line>
+          <line>330</line>
           <option name="timeStamp" value="6" />
         </line-breakpoint>
       </breakpoints>

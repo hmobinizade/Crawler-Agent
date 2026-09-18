@@ -74,11 +74,10 @@ class CrawlerCodeAgent:
         if fields and "FIELDS" not in code:
             errors.append("generated code does not expose its field contract")
 
-        runtime = structure.get("method")
-        if runtime == "playwright" and "playwright" not in code.lower():
-            errors.append("structure requires Playwright but generated code does not use it")
-        if runtime in {"requests_bs4", "static"} and "BeautifulSoup" not in code:
-            errors.append("structure requires requests+BeautifulSoup but generated code does not use it")
+        if "playwright" not in code.lower():
+            errors.append("generated custom crawler must use Playwright")
+        if "BeautifulSoup" in code or "requests.Session" in code or "requests.get" in code:
+            errors.append("custom Playwright crawler must not use the static Requests/BeautifulSoup path")
 
         try:
             tree = ast.parse(code)
@@ -103,13 +102,14 @@ class CrawlerCodeAgent:
 
     @staticmethod
     def smoke_validate_html(code: str, structure: dict[str, Any], html: str | None) -> dict[str, Any]:
-        if not html or (structure.get("method") or "").lower() not in {"requests_bs4", "static"}:
-            return {
-                "attempted": False,
-                "ok": True,
-                "errors": [],
-                "warnings": ["HTML smoke test skipped for this runtime."],
-            }
+        # The custom path is Playwright-only. Source HTML is still useful as evidence,
+        # but a browser smoke test requires a real browser and belongs to the runtime stage.
+        return {
+            "attempted": False,
+            "ok": True,
+            "errors": [],
+            "warnings": ["HTML smoke test skipped; custom crawlers are validated for Playwright structure and syntax."],
+        }
 
         try:
             from bs4 import BeautifulSoup

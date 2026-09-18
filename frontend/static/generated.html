@@ -25,7 +25,7 @@
       <section class="panel explorer-panel">
         <div class="panel-heading">
           <div><span class="step-label">01</span><h2>Generated library</h2></div>
-          <div class="artifact-toolbar"><button id="refreshArtifacts" class="tiny-button">Refresh</button></div>
+          <div class="artifact-toolbar"><button id="expandAll" class="tiny-button" type="button">Expand all</button><button id="collapseAll" class="tiny-button" type="button">Collapse all</button><button id="refreshArtifacts" class="tiny-button" type="button">Refresh</button></div>
         </div>
         <div class="artifact-path" id="artifactPath">generated/</div>
         <div id="artifactTree" class="artifact-tree full-height"><div class="artifact-empty">Loading generated artifacts…</div></div>
@@ -39,11 +39,11 @@
           <a id="downloadCurrent" class="artifact-link disabled-link" href="#">Download</a>
           <a id="downloadFolder" class="artifact-link disabled-link" href="#">Download folder ZIP</a>
         </div>
-        <div id="previewEmpty" class="preview-empty">Choose a file from the generated library to preview it here.</div>
-        <pre id="previewContent" class="standalone-preview hidden"></pre>
+<!--        <div id="previewEmpty" class="preview-empty hidden"></div>-->
+        <pre id="previewContent" class="standalone-preview ">Choose a file from the generated library to preview it here.</pre>
       </section>
     </main>
   </div>
-  <script src="/static/generated.js"></script>
+  <script type="module" src="/static/generated.js?v=22"></script>
 </body>
 </html>

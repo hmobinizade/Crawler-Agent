@@ -5,5 +5,3 @@ __pycache__/
 .browser-profile/
 generated/*
 .pytest_cache/
-.playwright-mcp
-.idea

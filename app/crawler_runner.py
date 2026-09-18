@@ -12,7 +12,7 @@ class CrawlerRunError(RuntimeError):
     pass
 
 
-def run_crawler(script: str | Path, *, url: str, output: str | Path, max_pages: int = 20,
+def run_crawler(script: str | Path, *, url: str, output: str | Path,
                 timeout_seconds: int = 240, headless: bool = True) -> dict[str, Any]:
     script_path = Path(script).resolve()
     output_path = Path(output).resolve()
@@ -20,7 +20,8 @@ def run_crawler(script: str | Path, *, url: str, output: str | Path, max_pages: 
     env = os.environ.copy()
     env['CRAWLER_START_URL'] = url
     env['CRAWLER_OUT'] = str(output_path)
-    env['CRAWLER_MAX_PAGES'] = str(max_pages)
+    # Custom exceptions are also executed in single-page mode.
+    env['CRAWLER_MAX_PAGES'] = '1'
     env['CRAWLER_HEADLESS'] = '1' if headless else '0'
     env['PYTHONUNBUFFERED'] = '1'
 

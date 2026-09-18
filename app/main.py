@@ -25,7 +25,7 @@ from .models import CodegenRequest, ConfirmRequest, CrawlRequest, DiscoverReques
 from .session_manager import BrowserSessionManager
 from .store import store
 
-app = FastAPI(title='Agentic Crawler Studio', version='2.0.0')
+app = FastAPI(title='Agentic Crawler Studio', version='2.1.0')
 app.mount('/static', StaticFiles(directory='frontend/static'), name='static')
 
 host_registry = HostAnalysisRegistry()
@@ -250,7 +250,7 @@ async def _load_discovery_for_codegen(req: CodegenRequest) -> tuple[DiscoveryRes
     structure = dict(structure)
     structure.setdefault('status', 'READY')
     structure.setdefault('host', urlparse(url).netloc.lower())
-    structure.setdefault('method', 'requests_bs4')
+    structure.setdefault('method', 'playwright')
     structure.setdefault('source', 'none')
     structure.setdefault('template', {})
     try:
@@ -295,21 +295,33 @@ async def generate_code(req: CodegenRequest):
         discovery=discovery,
         source_html=html,
     )
+    code_file = next((Path(path) for path in generated_files if path.endswith('.py')), None)
+    custom_script = None
+    if code_file is not None:
+        try:
+            custom_script = str(code_file.resolve().relative_to(artifact_store.root.resolve())).replace('\\', '/')
+        except ValueError:
+            custom_script = None
     files += artifact_store.save_codegen(
         job_id=job_id,
         url=url,
         code=code,
-        codegen_prompt=(repair['repair_prompt'] if repair else 'Deterministic code generation from ExtractionSpec.'),
+        codegen_prompt=(repair['repair_prompt'] if repair else 'Deterministic Playwright code generation from ExtractionSpec.'),
         llm_response=(repair['llm_response'] if repair else {'used': False, 'mode': 'deterministic-first'}),
         validation=info['validation'],
+        custom_script=custom_script,
     )
+    if custom_script:
+        registry_structure = discovery.model_dump(mode='json')
+        registry_structure['execution'] = {'mode': 'custom', 'script': custom_script}
+        structure_registry.save(registry_structure, structure_id=job_id)
     return {
         'job_id': job_id,
         'domain': urlparse(url).netloc.lower(),
         'filename': Path(next(p for p in generated_files if p.endswith('.py'))).name,
-        'runtime': discovery.method,
+        'runtime': 'playwright',
         'notes': (repair['notes'] if repair else ['Deterministic generator used; LLM is repair-only.']),
-        'required_packages': (repair.get('required_packages') if repair else (['requests', 'beautifulsoup4'] if discovery.method in {'requests_bs4', 'static'} else ['playwright'])),
+        'required_packages': (repair.get('required_packages') if repair else ['playwright']),
         'validation': info['validation'],
         'files': sorted(set(generated_files + files)),
         'code': code,
@@ -318,54 +330,38 @@ async def generate_code(req: CodegenRequest):
 
 @app.post('/crawl')
 async def crawl(req: CrawlRequest):
-    structure = req.structure
-    url = str(req.url or '')
-    job_id = req.source_job_id
+    """Run a crawler from exactly one URL + one Extraction Structure.
 
-    if req.structure_id:
-        structure = structure_registry.get(req.structure_id)
-        if not structure:
-            raise HTTPException(status_code=404, detail='Unknown structure')
-        url = url or str(structure.get('url') or structure.get('start_url') or '')
-        job_id = job_id or f"structure_{req.structure_id}"
+    execution.mode is read from the structure:
+      - generic (default): shared Playwright runtime
+      - custom: execute the custom script referenced by execution.script
+    """
+    url = str(req.url)
+    structure = dict(req.structure)
+    execution = structure.get('execution') if isinstance(structure.get('execution'), dict) else {}
+    mode = str(execution.get('mode') or 'generic').lower()
+    run_id = f"crawl_{uuid4().hex[:10]}"
+    output_dir = artifact_store.job_dir(url, run_id)
+    output = output_dir / '11_crawl_results.jsonl'
 
-    if req.source_job_id:
-        info = artifact_store.job_entry(req.source_job_id)
-        if not info:
-            raise HTTPException(status_code=404, detail='Unknown source job')
-        structure = artifact_store.read_structure(info['url'], req.source_job_id)
-        url = url or info['url']
-        if not structure:
-            raise HTTPException(status_code=404, detail='Source job has no extraction structure')
-        job_id = req.source_job_id
-
-    if not structure or not url:
-        raise HTTPException(status_code=422, detail='Provide source_job_id, structure_id, or structure + url')
-
-    # Generic runtime is the default and does not generate a per-job crawler file.
-    if req.mode == 'generic':
-        run_job_id = job_id or f"crawl_{uuid4().hex[:10]}"
-        output_dir = artifact_store.job_dir(url, run_job_id)
-        output = output_dir / '11_crawl_results.jsonl'
+    if mode == 'generic':
         try:
             run_info = run_structure(
                 structure,
                 start_url=url,
                 output=output,
-                max_pages=req.max_pages,
                 timeout_seconds=req.timeout_seconds,
                 headless=req.headless,
             )
         except Exception as exc:
-            raise HTTPException(status_code=502, detail=f'Generic crawler execution failed: {exc}') from exc
-        saved = artifact_store.save_crawl(job_id=run_job_id, url=url, run_info=run_info)
-        result_rel = str(output.resolve().relative_to(artifact_store.root.resolve())).replace('\\', '/') if output.resolve().is_relative_to(artifact_store.root.resolve()) else str(output)
+            raise HTTPException(status_code=502, detail=f'Generic Playwright crawler execution failed: {exc}') from exc
+        saved = artifact_store.save_crawl(job_id=run_id, url=url, run_info=run_info)
+        result_rel = str(output.resolve().relative_to(artifact_store.root.resolve())).replace('\\', '/')
         return {
-            'job_id': run_job_id,
-            'structure_id': structure.get('structure_id'),
-            'url': url,
+            'job_id': run_id,
             'mode': 'generic',
-            'runtime': structure.get('method', 'requests_bs4'),
+            'runtime': 'playwright',
+            'url': url,
             'record_count': run_info['record_count'],
             'success_count': run_info['success_count'],
             'failed_count': run_info['failed_count'],
@@ -375,27 +371,45 @@ async def crawl(req: CrawlRequest):
             'result_download': '/artifacts/download?path=' + result_rel,
         }
 
-    # Explicit custom mode: legacy Codegen path is preserved as an escape hatch.
-    discovery = None
-    if req.source_job_id:
-        discovery = DiscoveryResult.model_validate(structure)
-    else:
-        discovery = DiscoveryResult.model_validate({**structure, 'url': url, 'status': structure.get('status','READY')})
-    custom_job_id = job_id or f"custom_{uuid4().hex[:10]}"
+    if mode != 'custom':
+        raise HTTPException(status_code=422, detail="structure.execution.mode must be 'generic' or 'custom'")
+
+    script_rel = execution.get('script') or execution.get('entrypoint')
+    if not script_rel:
+        raise HTTPException(status_code=422, detail="Custom structure requires execution.script")
     try:
-        code, _, _ = await _ensure_codegen(discovery, None, custom_job_id)
-    except CodeGenerationError as exc:
-        raise HTTPException(status_code=502, detail=f'Custom codegen failed: {exc}') from exc
-    crawler_path = Path('generated') / artifact_store.host(url) / f'job_{custom_job_id}' / '09_crawler.py'
-    crawler_path.parent.mkdir(parents=True, exist_ok=True)
-    crawler_path.write_text(code, encoding='utf-8')
-    output = crawler_path.parent / '11_crawl_results.jsonl'
+        script_path = artifact_store.safe_resolve(str(script_rel))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not script_path.exists() or not script_path.is_file() or script_path.suffix.lower() != '.py':
+        raise HTTPException(status_code=404, detail='Custom crawler script not found under generated artifacts')
+
+    output = output_dir / '11_crawl_results.jsonl'
     try:
-        run_info = run_crawler(crawler_path, url=url, output=output, max_pages=req.max_pages, timeout_seconds=req.timeout_seconds, headless=req.headless)
+        run_info = run_crawler(
+            script_path,
+            url=url,
+            output=output,
+            timeout_seconds=req.timeout_seconds,
+            headless=req.headless,
+        )
     except CrawlerRunError as exc:
-        raise HTTPException(status_code=502, detail=f'Custom crawler execution failed: {exc}') from exc
-    saved = artifact_store.save_crawl(job_id=custom_job_id, url=url, run_info=run_info)
-    return {'job_id': custom_job_id, 'url': url, 'mode':'custom', 'runtime': discovery.method, 'record_count':run_info['record_count'], 'success_count':run_info['success_count'], 'failed_count':run_info['failed_count'], 'records':run_info['records'], 'files':sorted(set(saved)),'result_file':str(output)}
+        raise HTTPException(status_code=502, detail=f'Custom Playwright crawler execution failed: {exc}') from exc
+    saved = artifact_store.save_crawl(job_id=run_id, url=url, run_info=run_info)
+    result_rel = str(output.resolve().relative_to(artifact_store.root.resolve())).replace('\\', '/')
+    return {
+        'job_id': run_id,
+        'mode': 'custom',
+        'runtime': 'custom-playwright',
+        'url': url,
+        'record_count': run_info['record_count'],
+        'success_count': run_info['success_count'],
+        'failed_count': run_info['failed_count'],
+        'records': run_info['records'],
+        'files': sorted(set(saved)),
+        'result_file': result_rel,
+        'result_download': '/artifacts/download?path=' + result_rel,
+    }
 
 
 # Compatibility endpoint; new UI no longer uses approval as a workflow gate.

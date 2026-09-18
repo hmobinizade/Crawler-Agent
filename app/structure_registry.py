@@ -30,7 +30,8 @@ class StructureRegistry:
             for p in sorted(domain.glob("*.json"),key=lambda x:x.stat().st_mtime,reverse=True):
                 try: data=json.loads(p.read_text(encoding="utf-8"))
                 except Exception: data={}
-                out.append({"structure_id":p.stem,"domain":domain.parent.name,"url":data.get("url") or data.get("start_url") or "","method":data.get("method",""),"path":str(p.relative_to(self.root)).replace("\\","/"),"modified":p.stat().st_mtime})
+                execution = data.get("execution") if isinstance(data.get("execution"), dict) else {}
+                out.append({"structure_id":p.stem,"domain":domain.parent.name,"url":data.get("url") or data.get("start_url") or "","method":"playwright","mode":execution.get("mode","generic"),"path":str(p.relative_to(self.root)).replace("\\","/"),"modified":p.stat().st_mtime})
         return out
     def get(self, structure_id: str)->dict[str,Any]|None:
         for p in self.root.glob(f"*/structures/{structure_id}.json"):
