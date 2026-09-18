@@ -6,3 +6,4 @@ __pycache__/
 generated/*
 .pytest_cache/
 .playwright-mcp
+.idea
