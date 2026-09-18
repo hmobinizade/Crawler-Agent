@@ -4,31 +4,8 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="initial.">
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="v21.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/artifacts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/codegen.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/codegen_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/crawler_runner.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/crawler_runner.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/generic_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/generic_runtime.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/structure_registry.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/structure_registry.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/frontend/static/index.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/frontend/static/index.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/crawler.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/crawler.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/crawler.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/crawler.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/generated.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/generated.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_codegen_quality.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_codegen_quality.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_generic_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_generic_runtime.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_v19_workflows.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v19_workflows.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -108,7 +85,7 @@
       <option name="presentableId" value="Default" />
       <updated>1788945272340</updated>
       <workItem from="1788945274957" duration="14624000" />
-      <workItem from="1789377844310" duration="52157000" />
+      <workItem from="1789377844310" duration="52928000" />
     </task>
     <task id="LOCAL-00001" summary="initial.">
       <option name="closed" value="true" />
@@ -126,7 +103,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789749375838</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="v21.">
+      <option name="closed" value="true" />
+      <created>1789753514815</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1789753514815</updated>
+    </task>
+    <option name="localTasksCounter" value="4" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -134,7 +119,8 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="initial." />
-    <option name="LAST_COMMIT_MESSAGE" value="initial." />
+    <MESSAGE value="v21." />
+    <option name="LAST_COMMIT_MESSAGE" value="v21." />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
