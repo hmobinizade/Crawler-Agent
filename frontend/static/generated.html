@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Adaptive Crawler Studio — Files</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="bg-orb orb-one"></div><div class="bg-orb orb-two"></div>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand"><div class="brand-mark">AC</div><div>
+        <div class="eyebrow">AGENTIC WEB EXTRACTION</div>
+        <h1>Files</h1>
+        <p>Manage analyses, crawlers, prompts, source HTML, crawl runs, and complete job bundles.</p>
+      </div></div>
+      <nav class="topnav"><a class="nav-link" href="/">Discover</a><a class="nav-link" href="/codegen">Codegen</a><a class="nav-link" href="/crawler">Crawler</a><a class="nav-link active" href="/generated">Files</a></nav>
+      <div class="live-status"><span class="live-dot"></span> LIVE</div>
+    </header>
+    <main class="generated-layout">
+      <section class="panel explorer-panel">
+        <div class="panel-heading">
+          <div><span class="step-label">01</span><h2>Generated library</h2></div>
+          <div class="artifact-toolbar"><button id="refreshArtifacts" class="tiny-button">Refresh</button></div>
+        </div>
+        <div class="artifact-path" id="artifactPath">generated/</div>
+        <div id="artifactTree" class="artifact-tree full-height"><div class="artifact-empty">Loading generated artifacts…</div></div>
+      </section>
+      <section class="panel preview-panel">
+        <div class="panel-heading">
+          <div><span class="step-label">02</span><h2 id="previewTitle">Artifact preview</h2></div>
+          <span id="previewMeta" class="micro-copy">Select a file</span>
+        </div>
+        <div class="preview-toolbar">
+          <a id="downloadCurrent" class="artifact-link disabled-link" href="#">Download</a>
+          <a id="downloadFolder" class="artifact-link disabled-link" href="#">Download folder ZIP</a>
+        </div>
+        <div id="previewEmpty" class="preview-empty">Choose a file from the generated library to preview it here.</div>
+        <pre id="previewContent" class="standalone-preview hidden"></pre>
+      </section>
+    </main>
+  </div>
+  <script src="/static/generated.js"></script>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-08-26-121Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-11-39-722Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-16T18-31-56-923Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T10-05-20-924Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T10-18-22-926Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-52-43-624Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-56-32-648Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T18-58-30-357Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/console-2026-09-17T19-01-03-108Z.log" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-08-30-419Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-11-40-553Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-16T18-31-57-532Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-05-21-825Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-18-23-756Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T10-38-53-159Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-52-44-269Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-56-33-401Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T18-58-31-115Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.playwright-mcp/page-2026-09-17T19-01-03-805Z.yml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/adaptive.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/codegen.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/codegen_fix.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/crawler_runner.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/extractor.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/generic_runtime.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/host_registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/llm.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/local_registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/mcp_client.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/prompts.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/session_manager.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/settings.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/static_extractor.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/store.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/app/structure_registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/codegen_full.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/app.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/index.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/frontend/static/style.css" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/app.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/codegen.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/codegen.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/crawler.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/crawler.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/discover.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/discover.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/generated.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/generated.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/index.html" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/studio.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/patch.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/patch2.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/patch_ui.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/pytest.ini" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/test_results.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_adaptive_static.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_artifact_browser.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_codegen.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_codegen_quality.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_codegen_v17_exact_runtime.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_extractor_helpers.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_generic_jsonld_collection.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_generic_runtime.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_regressions.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_structure_registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_v10_wiring.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_v15_codegen_agent.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_v16_codegen_architecture.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_v18_collection_and_ui.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_v19_workflows.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/tests/test_validate_analysis.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="3J5K1CcjObDLDMKQDQs7NSAs1gw" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.codegen.executor": "Run",
+    "Python.crawler_7a299e7d17a1.executor": "Run",
+    "Python.crawler_c5f4995bc3ef.executor": "Run",
+    "Python.site_crawler.executor": "Run",
+    "Python.test_mcp.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "F:/work/rcdat/agantic/agentic_playwright_mcp/app",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "two.files.diff.last.used.file": "F:/work/rcdat/agantic/agentic_playwright_mcp/generated/farsnews.ir/job_c4700add92a2/09_crawler1.py",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="F:\work\rcdat\agantic\agentic_playwright_mcp\app" />
+      <recent name="F:\work\rcdat\agantic\agentic_playwright_mcp" />
+    </key>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-b26f3e71634d-JavaScript-PY-251.26094.141" />
+        <option value="bundled-python-sdk-9f8e2b94138c-36ea0e71a18c-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-251.26094.141" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="" />
+      <created>1788945272340</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1788945272340</updated>
+      <workItem from="1788945274957" duration="14624000" />
+      <workItem from="1789377844310" duration="48162000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/app/main.py</url>
+          <line>318</line>
+          <option name="timeStamp" value="6" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$test_mcp.coverage" NAME="test_mcp Coverage Results" MODIFIED="1788946916261" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$site_crawler.coverage" NAME="site_crawler Coverage Results" MODIFIED="1788948556069" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/generated/31ffa2270f65" />
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$crawler_c5f4995bc3ef.coverage" NAME="crawler_c5f4995bc3ef Coverage Results" MODIFIED="1788959060802" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/generated/www.tabnak.ir" />
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$codegen.coverage" NAME="codegen Coverage Results" MODIFIED="1789642374501" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app" />
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$crawler_7a299e7d17a1.coverage" NAME="crawler_7a299e7d17a1 Coverage Results" MODIFIED="1789383843177" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/generated/www.tabnak.ir" />
+  </component>
+</project>

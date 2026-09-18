@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Adaptive Crawler</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="bg-orb orb-one"></div>
+  <div class="bg-orb orb-two"></div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">AC</div>
+        <div>
+          <div class="eyebrow">AGENTIC WEB EXTRACTION</div>
+          <h1>Adaptive Crawler</h1>
+          <p>Local crawler first. Static extraction next. Playwright only when it adds value.</p>
+        </div>
+      </div>
+      <div class="live-status"><span class="live-dot"></span> LIVE</div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel input-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="step-label">01</span>
+            <h2>Discovery</h2>
+          </div>
+          <span class="micro-copy">URL + JSON template</span>
+        </div>
+
+        <div class="field-block">
+          <label for="url">Page URL</label>
+          <input id="url" value="https://www.tabnak.ir/fa/news/1393602/" placeholder="https://example.com/article/123" autocomplete="off">
+        </div>
+
+        <div class="field-block template-block">
+          <div class="label-row">
+            <label for="template">JSON Template</label>
+            <span>Every field is considered part of the requested schema.</span>
+          </div>
+          <textarea id="template" spellcheck="false">{
+  "news_code": "",
+  "title": "",
+  "body": "",
+  "image": "",
+  "date": "",
+  "author": "",
+  "view_count": ""
+}</textarea>
+        </div>
+
+        <button id="run" class="primary-button">
+          <span>Analyze page</span>
+          <span class="button-arrow">→</span>
+        </button>
+
+        <div id="steps" class="trace-list"></div>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="panel-heading result-heading">
+          <div>
+            <span class="step-label">02</span>
+            <h2>Extraction Result</h2>
+          </div>
+          <div class="result-meta">
+            <span id="method" class="method-badge">WAITING</span>
+            <span id="statusBadge" class="status-badge neutral">IDLE</span>
+          </div>
+        </div>
+
+        <div id="warning" class="warning-card hidden"></div>
+
+        <div class="json-card">
+          <div class="card-bar">
+            <span>Proposed JSON</span>
+            <span class="mono-label">OUTPUT</span>
+          </div>
+          <pre id="json">Waiting for analysis…</pre>
+        </div>
+
+        <div class="fields-card">
+          <div class="card-bar">
+            <span>Field validation</span>
+            <span class="mono-label">SCHEMA</span>
+          </div>
+          <div id="fields" class="fields-table"></div>
+        </div>
+
+        <div class="actions-card">
+          <div class="approval-copy">
+            <strong>Ready to generate?</strong>
+            <span id="approvalText">Analyze a page to review the extracted fields.</span>
+          </div>
+          <button id="confirm" class="confirm-button" disabled>
+            <span>Approve & generate crawler</span>
+            <span>→</span>
+          </button>
+        </div>
+
+        <div class="files-card">
+          <div class="card-bar">
+            <span>Generated files</span>
+            <span class="mono-label">LOCAL</span>
+          </div>
+          <pre id="files">No crawler generated yet.</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+[     575ms] [LOG] Platform: web @ https://farsnews.ir/app.c18b9c5.js:0
+[     672ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ https://farsnews.ir/f_maleki/1789494619808281205/handle-min-webview.js:0
+[     672ms] [ERROR] Refused to execute script from 'https://farsnews.ir/f_maleki/1789494619808281205/handle-min-webview.js' because its MIME type ('') is not executable, and strict MIME type checking is enabled. @ https://farsnews.ir/f_maleki/1789494619808281205/%D9%BE%D8%AF%D8%B1-%D8%B4%D9%87%DB%8C%D8%AF-%D9%87%D9%88%D8%A7%D9%81%D8%B6%D8%A7-%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87-%D9%85%D8%A4%D9%85%D9%86-%D9%86%D8%B3%D8%A8-%D8%A8%D9%87-%D9%81%D8%B1%D8%B2%D9%86%D8%AF%D8%B4-%D9%BE%DB%8C%D9%88%D8%B3%D8%AA:0
+[     697ms] [INFO] Banner not shown: beforeinstallpromptevent.preventDefault() called. The page must call beforeinstallpromptevent.prompt() to show the banner. @ https://farsnews.ir/f_maleki/1789494619808281205/%D9%BE%D8%AF%D8%B1-%D8%B4%D9%87%DB%8C%D8%AF-%D9%87%D9%88%D8%A7%D9%81%D8%B6%D8%A7-%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%84%D9%87-%D9%85%D8%A4%D9%85%D9%86-%D9%86%D8%B3%D8%A8-%D8%A8%D9%87-%D9%81%D8%B1%D8%B2%D9%86%D8%AF%D8%B4-%D9%BE%DB%8C%D9%88%D8%B3%D8%AA:0
+[     752ms] [ERROR] Failed to load resource: the server responded with a status of 400 (Bad Request) @ https://trace.farsnews.ir/Tracker/collect:0
+[     788ms] [LOG] 
+%c💀 !اخطار 💀
+
+%cاستفاده از این کنسول به مهاجمین امکان می‌دهد هویت شما را جعل کنند و اطلاعات شما را سرقت کنند
+
+اگر با کدی آشنا نیستید آن را در این‌جا وارد یا جای‌گذاری نکنید
+ font-family: estedad, vazir, iransans, "b yekan", tahoma; font-weight: bold; font-size:24px; color: red; font-family: estedad, vazir, iransans, "b yekan", tahoma; font-weight: bold; font-size: 20px; @ https://farsnews.ir/app.c18b9c5.js:53
+[     942ms] [LOG] calling replace {name: post, params: Object, query: Object} @ https://farsnews.ir/app.c18b9c5.js:53

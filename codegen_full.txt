@@ -1,0 +1,335 @@
+from __future__ import annotations
+
+import json
+import pprint
+import re
+from pathlib import Path
+from textwrap import dedent
+from .models import DiscoveryResult
+
+COMMON_HELPERS = r'''
+import json, re, time
+from pathlib import Path
+from urllib.parse import urlparse
+
+ROOT = __ROOT__
+START_URL = __START_URL__
+OUT = Path(__OUT__)
+FIELDS = __FIELDS__
+REQUIRED = __REQUIRED__
+MIN_DELAY_SECONDS = 1.5
+MAX_RETRIES = 3
+NAV_TIMEOUT_MS = 60000
+
+
+def clean_text(value):
+    if value is None: return None
+    value = re.sub(r"\\s+", " ", str(value)).strip()
+    return value or None
+
+
+def set_path(obj, path, value):
+    cur = obj
+    parts = path.split('.')
+    for part in parts[:-1]: cur = cur.setdefault(part, {})
+    cur[parts[-1]] = value
+
+
+def get_path(obj, path):
+    cur = obj
+    for part in path.split('.'):
+        if not isinstance(cur, dict) or part not in cur: return None
+        cur = cur[part]
+    return cur
+
+
+def missing_required(data):
+    return [p for p in REQUIRED if get_path(data, p) in (None, '')]
+
+
+def same_site(url, root=ROOT):
+    return urlparse(url).netloc.lower() == urlparse(root).netloc.lower()
+'''
+
+PLAYWRIGHT_TEMPLATE = COMMON_HELPERS + r'''
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+
+USER_DATA_DIR = Path(__USER_DATA_DIR__)
+
+
+def scroll_to_bottom(page):
+    page.evaluate("""async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      let last = 0, stable = 0;
+      for (let i=0; i<20; i++) {
+        window.scrollTo(0, document.documentElement.scrollHeight);
+        await sleep(180);
+        const h=Math.max(document.body?.scrollHeight||0, document.documentElement.scrollHeight||0);
+        if (h===last) stable++; else stable=0;
+        last=h;
+        if (stable>=2) break;
+      }
+      window.scrollTo(0,0); await sleep(150);
+    }""")
+
+
+def extract_body(page, selector):
+    js = r"""root => {
+      const norm=s=>String(s??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
+      const bad=/((^|[-_\s])(ad|ads|advert|advertisement|banner|promo|sponsor|sponsored|related|recommend|comments?|share|social|newsletter|subscribe|cookie|popup|modal|sidebar)([-_\s]|$))/i;
+      const badText=/(advertisement|تبلیغ|آگهی|مطالب مرتبط|اخبار مرتبط|دیدگاه|نظرات کاربران|اشتراک گذاری|عضویت|پیشنهاد سردبیر)/i;
+      if(!root) return null;
+      const clone=root.cloneNode(true);
+      for(const el of [...clone.querySelectorAll('script,style,noscript,iframe,svg,form')]) el.remove();
+      for(const el of [...clone.querySelectorAll('*')]) {
+        const meta=[el.id||'',typeof el.className==='string'?el.className:'',el.getAttribute('aria-label')||'',el.getAttribute('role')||''].join(' ');
+        const t=norm(el.innerText||'');
+        if(bad.test(meta) || (t.length<400 && badText.test(t))) el.remove();
+      }
+      const blocks=[...clone.querySelectorAll('p,h2,h3,h4,blockquote,pre')].map(x=>norm(x.innerText||x.textContent||'')).filter(t=>t.length>=20 && !(t.length<500 && badText.test(t)));
+      const out=[]; for(const t of blocks) if(!out.includes(t)) out.push(t);
+      return out.length ? out.join('\n\n') : (norm(clone.innerText||'')||null);
+    }"""
+    try: return page.locator(selector).evaluate(js) or None
+    except Exception: return None
+
+
+def extract_collection(page, spec):
+    item_selector = spec.get('item_selector') or spec.get('selector')
+    item_fields = spec.get('item_fields') or {}
+    if not item_selector: return None
+    try: loc = page.locator(item_selector)
+    except Exception: return None
+    out=[]
+    for i in range(min(loc.count(), 500)):
+        item=loc.nth(i); row={}
+        for key, fs in item_fields.items():
+            q = fs.get('selector') if isinstance(fs, dict) else str(fs)
+            attr = fs.get('attribute') if isinstance(fs, dict) else None
+            try:
+                child=item.locator(q).first if q else item
+                value=child.get_attribute(attr, timeout=2000) if attr else child.inner_text(timeout=2000)
+            except Exception:
+                value=None
+            row[key]=clean_text(value)
+        if not row:
+            try: row={'text': clean_text(item.inner_text(timeout=2000))}
+            except Exception: row={'text': None}
+        if any(v not in (None,'') for v in row.values()): out.append(row)
+    return out or None
+
+def extract_field(page, spec):
+    selector=spec.get('selector'); st=spec.get('selector_type'); attr=spec.get('attribute'); path=str(spec.get('path','')).lower()
+    if not selector and spec.get('value_type')!='array': return None
+    if spec.get('value_type')=='array': return extract_collection(page, spec)
+    if st=='jsonld':
+        scripts=page.locator('script[type="application/ld+json"]')
+        for i in range(scripts.count()):
+            try: payload=json.loads(scripts.nth(i).inner_text(timeout=3000))
+            except Exception: continue
+            objs=payload if isinstance(payload,list) else [payload]
+            for obj in objs:
+                cur=obj
+                for part in str(selector).split('.'):
+                    if isinstance(cur,dict): cur=cur.get(part)
+                    else: cur=None; break
+                if cur not in (None,''):
+                    if isinstance(cur,dict): cur=cur.get('name') or cur.get('url') or cur.get('@id')
+                    return clean_text(cur)
+        return None
+    loc=page.locator(selector); count=loc.count()
+    if count==0 or (count>1 and spec.get('required',True)): return None
+    node=loc.first
+    if re.search(r'(^|\.)(body|content|text)$',path,re.I) and st=='css':
+        return extract_body(page,selector)
+    if attr: return clean_text(node.get_attribute(attr,timeout=3000))
+    return clean_text(node.inner_text(timeout=3000))
+
+
+def extract_page(page):
+    data={}
+    for field in FIELDS: set_path(data,field['path'],extract_field(page,field))
+    return data
+
+
+def extract_url(url):
+    with sync_playwright() as p:
+        context=p.chromium.launch_persistent_context(str(USER_DATA_DIR), headless=False, viewport={'width':1365,'height':900})
+        page=context.pages[0] if context.pages else context.new_page()
+        page.set_default_timeout(8000); page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
+        for attempt in range(MAX_RETRIES):
+            try:
+                page.goto(url, wait_until='domcontentloaded')
+                scroll_to_bottom(page)
+                data=extract_page(page)
+                result={'url':page.url,'data':data,'missing_required':missing_required(data),'extraction_ok':not missing_required(data),'method':'playwright'}
+                print(json.dumps(result,ensure_ascii=False))
+                context.close(); return result
+            except PlaywrightTimeoutError:
+                time.sleep(2**attempt)
+        context.close()
+        return None
+
+
+def candidate_links(page):
+    for href in page.locator('a[href]').evaluate_all("els => els.map(a => a.href).filter(Boolean)"):
+        if same_site(href): yield href
+
+
+def crawl():
+    OUT.parent.mkdir(parents=True,exist_ok=True)
+    with sync_playwright() as p:
+        context=p.chromium.launch_persistent_context(str(USER_DATA_DIR),headless=False,viewport={'width':1365,'height':900})
+        page=context.pages[0] if context.pages else context.new_page(); page.set_default_timeout(8000); page.set_default_navigation_timeout(NAV_TIMEOUT_MS)
+        queue=[START_URL]; visited=set()
+        with OUT.open('w',encoding='utf-8') as f:
+            while queue:
+                url=queue.pop(0)
+                if url in visited or not same_site(url): continue
+                visited.add(url)
+                try: page.goto(url,wait_until='domcontentloaded'); scroll_to_bottom(page)
+                except Exception: continue
+                data=extract_page(page); missing=missing_required(data)
+                record={'url':page.url,'data':data,'missing_required':missing,'extraction_ok':not missing,'method':'playwright'}
+                f.write(json.dumps(record,ensure_ascii=False)+'\n'); f.flush()
+                for href in candidate_links(page):
+                    if href not in visited and len(queue)<500: queue.append(href)
+                time.sleep(MIN_DELAY_SECONDS)
+        context.close()
+
+
+if __name__ == '__main__':
+    import argparse
+    parser=argparse.ArgumentParser(); parser.add_argument('--url',default=START_URL); parser.add_argument('--once',action='store_true'); args=parser.parse_args()
+    extract_url(args.url) if args.once else crawl()
+'''
+
+STATIC_TEMPLATE = COMMON_HELPERS + r'''
+import httpx
+from bs4 import BeautifulSoup
+
+
+def jsonld_objects(soup):
+    out=[]
+    for s in soup.select('script[type="application/ld+json"]'):
+        try:
+            x=json.loads(s.string or s.get_text())
+            out.extend(x if isinstance(x,list) else [x])
+        except Exception: pass
+    return [x for x in out if isinstance(x,dict)]
+
+
+def jsonld_get(soup, path):
+    for obj in jsonld_objects(soup):
+        cur=obj
+        for part in path.split('.'):
+            cur=cur.get(part) if isinstance(cur,dict) else None
+        if cur not in (None,''):
+            if isinstance(cur,dict): cur=cur.get('name') or cur.get('url') or cur.get('@id')
+            return clean_text(cur)
+    return None
+
+
+def clean_body(root):
+    clone=BeautifulSoup(str(root),'html.parser')
+    bad=re.compile(r'(^|[-_\\s])(ad|ads|advert|advertisement|banner|promo|sponsor|sponsored|related|recommend|comments?|share|social|newsletter|subscribe|cookie|popup|modal|sidebar)([-_\\s]|$)',re.I)
+    bad_text=re.compile(r'(advertisement|تبلیغ|آگهی|مطالب مرتبط|اخبار مرتبط|دیدگاه|نظرات کاربران|اشتراک گذاری|عضویت|پیشنهاد سردبیر)',re.I)
+    for e in clone.select('script,style,noscript,iframe,svg,form'): e.decompose()
+    for e in clone.select('*'):
+        meta=' '.join([str(e.get('id','')), ' '.join(e.get('class',[])) if isinstance(e.get('class'),list) else str(e.get('class','')), str(e.get('aria-label',''))])
+        t=clean_text(e.get_text(' ',strip=True)) or ''
+        if bad.search(meta) or (len(t)<400 and bad_text.search(t)): e.decompose()
+    blocks=[]
+    for e in clone.select('p,h2,h3,h4,blockquote,pre'):
+        t=clean_text(e.get_text(' ',strip=True))
+        if t and len(t)>=20 and not (len(t)<500 and bad_text.search(t)) and (not blocks or blocks[-1]!=t): blocks.append(t)
+    return '\n\n'.join(blocks) if blocks else clean_text(clone.get_text(' ',strip=True))
+
+
+def extract_collection(soup, spec):
+    item_selector = spec.get('item_selector') or spec.get('selector')
+    item_fields = spec.get('item_fields') or {}
+    if not item_selector: return None
+    try: nodes=soup.select(item_selector)
+    except Exception: return None
+    out=[]
+    for node in nodes[:500]:
+        row={}
+        for key, fs in item_fields.items():
+            q=fs.get('selector') if isinstance(fs,dict) else str(fs)
+            attr=fs.get('attribute') if isinstance(fs,dict) else None
+            try: child=node.select_one(q) if q else node
+            except Exception: child=None
+            if child is None: row[key]=None
+            else: row[key]=clean_text(child.get(attr) if attr else child.get_text(' ',strip=True))
+        if not row: row={'text':clean_text(node.get_text(' ',strip=True))}
+        if any(v not in (None,'') for v in row.values()): out.append(row)
+    return out or None
+
+def extract_field(soup, field):
+    spec=field; selector=spec.get('selector'); st=spec.get('selector_type'); attr=spec.get('attribute'); path=str(spec.get('path','')).lower()
+    if not selector and spec.get('value_type')!='array': return None
+    if spec.get('value_type')=='array': return extract_collection(soup, spec)
+    if st=='jsonld': return jsonld_get(soup,selector)
+    try: nodes=soup.select(selector)
+    except Exception: return None
+    if not nodes or (len(nodes)>1 and spec.get('required',True)): return None
+    node=nodes[0]
+    if re.search(r'(^|\.)(body|content|text)$',path,re.I) and st=='css': return clean_body(node)
+    return clean_text(node.get(attr) if attr else node.get_text(' ',strip=True))
+
+
+def extract_url(url):
+    headers={'User-Agent':'Mozilla/5.0 (compatible; ResearchCrawler/1.0)'}
+    with httpx.Client(timeout=30,follow_redirects=True,headers=headers) as client:
+        r=client.get(url); soup=BeautifulSoup(r.text,'html.parser'); data={}
+        for field in FIELDS: set_path(data,field['path'],extract_field(soup,field))
+        result={'url':str(r.url),'status_code':r.status_code,'data':data,'missing_required':missing_required(data),'extraction_ok':r.status_code<400 and not missing_required(data),'method':'requests_bs4'}
+        print(json.dumps(result,ensure_ascii=False)); return result
+
+
+def candidate_links(html, root):
+    soup=BeautifulSoup(html,'html.parser'); seen=set()
+    for a in soup.select('a[href]'):
+        href=a.get('href');
+        if not href: continue
+        from urllib.parse import urljoin
+        full=urljoin(root,href)
+        if same_site(full,root) and full not in seen: seen.add(full); yield full
+
+
+def crawl():
+    OUT.parent.mkdir(parents=True,exist_ok=True); queue=[START_URL]; visited=set(); headers={'User-Agent':'Mozilla/5.0 (compatible; ResearchCrawler/1.0)'}
+    with httpx.Client(timeout=30,follow_redirects=True,headers=headers) as client, OUT.open('w',encoding='utf-8') as f:
+        while queue:
+            url=queue.pop(0)
+            if url in visited or not same_site(url): continue
+            visited.add(url)
+            try: r=client.get(url)
+            except Exception: continue
+            soup=BeautifulSoup(r.text,'html.parser'); data={}
+            for field in FIELDS: set_path(data,field['path'],extract_field(soup,field))
+            missing=missing_required(data); record={'url':str(r.url),'data':data,'missing_required':missing,'extraction_ok':r.status_code<400 and not missing,'method':'requests_bs4'}
+            f.write(json.dumps(record,ensure_ascii=False)+'\n'); f.flush()
+            if len(visited)<500: queue.extend(x for x in candidate_links(r.text,str(r.url)) if x not in visited)
+            time.sleep(MIN_DELAY_SECONDS)
+
+
+if __name__ == '__main__':
+    import argparse
+    parser=argparse.ArgumentParser(); parser.add_argument('--url',default=START_URL); parser.add_argument('--once',action='store_true'); args=parser.parse_args()
+    extract_url(args.url) if args.once else crawl()
+'''
+
+
+def generate(job_id: str, discovery: DiscoveryResult, out_dir: str='generated') -> list[str]:
+    host=re.sub(r'[^a-zA-Z0-9._-]+','_',discovery.host) or 'unknown-host'
+    folder=Path(out_dir)/host; folder.mkdir(parents=True,exist_ok=True)
+    stem=f'crawler_{job_id}'; fields=[f.model_dump() for f in discovery.fields]; required=[f.path for f in discovery.fields if f.required]
+    template=STATIC_TEMPLATE if discovery.method=='requests_bs4' else PLAYWRIGHT_TEMPLATE
+    code=template.replace('__START_URL__',repr(discovery.url)).replace('__ROOT__',repr(discovery.url))
+    code=code.replace('__OUT__',repr(str(folder/f'{stem}.jsonl'))).replace('__USER_DATA_DIR__',repr(str(folder/'.browser-profile')))
+    code=code.replace('__FIELDS__',pprint.pformat(fields,width=120,sort_dicts=False)).replace('__REQUIRED__',pprint.pformat(required,width=120,sort_dicts=False))
+    path=folder/f'{stem}.py'; path.write_text(dedent(code),encoding='utf-8')
+    schema=folder/f'{stem}.schema.json'; schema.write_text(json.dumps(discovery.model_dump(),ensure_ascii=False,indent=2),encoding='utf-8')
+    return [str(path),str(schema)]

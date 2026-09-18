@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Adaptive Crawler — Generate</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="bg-orb orb-one"></div>
+  <div class="bg-orb orb-two"></div>
+
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark">AC</div>
+        <div>
+          <div class="eyebrow">AGENTIC WEB EXTRACTION</div>
+          <h1>Adaptive Crawler</h1>
+          <p>Analyze a page, build its extraction structure, and generate a reusable crawler.</p>
+        </div>
+      </div>
+      <nav class="topnav">
+        <a class="nav-link active" href="/">Generate</a>
+        <a class="nav-link" href="/generated">Generated</a>
+      </nav>
+      <div class="live-status"><span class="live-dot"></span> LIVE</div>
+    </header>
+
+    <main class="workspace">
+      <section class="panel input-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="step-label">01</span>
+            <h2>Discovery</h2>
+          </div>
+          <span class="micro-copy">URL + JSON template</span>
+        </div>
+
+        <div class="field-block">
+          <label for="url">Page URL</label>
+          <input id="url" value="https://www.tabnak.ir/fa/news/1393602/" placeholder="https://example.com/article/123" autocomplete="off">
+        </div>
+
+        <div class="field-block template-block">
+          <div class="label-row">
+            <label for="template">JSON Template</label>
+            <span>Every field is considered part of the requested schema.</span>
+          </div>
+          <textarea id="template" spellcheck="false">{
+  "news_code": "",
+  "title": "",
+  "body": "",
+  "image": "",
+  "date": "",
+  "author": "",
+  "view_count": ""
+}</textarea>
+        </div>
+
+        <div class="button-stack">
+          <button id="run" class="primary-button">
+            <span>Open page</span>
+            <span class="button-arrow">→</span>
+          </button>
+          <button id="analyzeCurrent" class="secondary-button" disabled>
+            <span>Analyze current page</span>
+            <span>⌘</span>
+          </button>
+        </div>
+        <div id="humanHint" class="human-hint hidden">
+          <strong>Browser is ready.</strong> Interact with the opened page manually, then click <b>Analyze current page</b>. The analyzer will not navigate away from your current page.
+        </div>
+
+        <div id="steps" class="trace-list"></div>
+      </section>
+
+      <section class="panel result-panel">
+        <div class="panel-heading result-heading">
+          <div>
+            <span class="step-label">02</span>
+            <h2>Extraction Result</h2>
+          </div>
+          <div class="result-meta">
+            <span id="method" class="method-badge">WAITING</span>
+            <span id="statusBadge" class="status-badge neutral">IDLE</span>
+          </div>
+        </div>
+
+        <div id="warning" class="warning-card hidden"></div>
+
+        <div class="json-card">
+          <div class="card-bar">
+            <span>Proposed JSON</span>
+            <span class="mono-label">OUTPUT</span>
+          </div>
+          <pre id="json">Waiting for analysis…</pre>
+        </div>
+
+        <div class="fields-card">
+          <div class="card-bar">
+            <span>Field validation</span>
+            <span class="mono-label">SCHEMA</span>
+          </div>
+          <div id="fields" class="fields-table"></div>
+        </div>
+
+        <div class="actions-card">
+          <div class="approval-copy">
+            <strong>Ready to generate?</strong>
+            <span id="approvalText">Analyze a page to review the extracted fields.</span>
+          </div>
+          <button id="confirm" class="confirm-button" disabled>
+            <span>Approve & generate crawler</span>
+            <span>→</span>
+          </button>
+        </div>
+
+
+        <div class="code-only-card">
+          <div class="card-bar">
+            <span>Code from structure</span>
+            <span class="mono-label">AGENT CODEGEN</span>
+          </div>
+          <p class="section-note">Paste a structure from a previous analysis. This mode skips discovery and only asks the coding agent to produce the crawler.</p>
+          <textarea id="structureInput" class="structure-input" spellcheck="false" placeholder='{"status":"READY",...}'></textarea>
+          <div class="code-only-actions">
+            <button id="useCurrentStructure" class="secondary-button">Use current structure</button>
+            <button id="generateCodeOnly" class="confirm-button">Generate crawler only <span>→</span></button>
+          </div>
+        </div>
+        <div class="crawler-code-card">
+          <div class="card-bar">
+            <span>Generated crawler code</span>
+            <span class="mono-label">PYTHON</span>
+          </div>
+          <pre id="crawlerCode">No crawler code generated yet.</pre>
+        </div>
+
+
+
+        <div class="files-card">
+          <div class="card-bar">
+            <span>Generated files</span>
+            <span class="mono-label">LOCAL</span>
+          </div>
+          <pre id="files">No crawler generated yet.</pre>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
