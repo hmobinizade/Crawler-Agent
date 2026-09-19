@@ -176,12 +176,10 @@ async def _execute_discovery(req: DiscoverRequest, run_id: str | None = None) ->
         artifacts = getattr(agent, 'browser_agent', None).last_artifacts if getattr(agent, 'browser_agent', None) is not None else {}
         artifact_store.save_discovery(
             job_id=job.id, url=result.url, template=req.template, discovery=result,
-            source_html=artifacts.get('source_html'), discovery_prompt=artifacts.get('round4_synthesis_prompt') or artifacts.get('round2_field_prompt') or artifacts.get('round1_recon_prompt'),
+            source_html=artifacts.get('source_html'), discovery_prompt=artifacts.get('analysis_prompt') or artifacts.get('repair_prompt'),
             analysis_response={
-                'round1_recon': artifacts.get('round1_recon'),
-                'round2_investigation': artifacts.get('round2_investigation'),
-                'round4_synthesis': artifacts.get('round4_synthesis'),
-                'round5_repair': artifacts.get('round5_repair'),
+                'analysis_response': artifacts.get('analysis_response'),
+                'repair_response': artifacts.get('repair_response'),
                 'verification': artifacts.get('verification'),
             },
             stage_artifacts=artifacts,

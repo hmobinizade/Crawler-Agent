@@ -50,11 +50,11 @@ async function pollRun(runId) {
     const d = job.discovery || {};
     const fields = d.fields || [];
     const missing = d.missing_required || [];
-    document.getElementById('method').textContent = 'PLAYWRIGHT · MULTI-ROUND';
+    document.getElementById('method').textContent = 'PLAYWRIGHT · BOUNDED AGENT';
     document.getElementById('verifiedCount').textContent = `${fields.filter(x => x.found).length}/${fields.length}`;
     document.getElementById('missingCount').textContent = String(missing.length);
-    const synthesisEvents = state.events.filter(x => x.stage === 'recon' || x.stage === 'investigation' || x.stage === 'synthesis' || x.stage === 'repair');
-    document.getElementById('roundCount').textContent = String(new Set(synthesisEvents.map(x => x.stage)).size);
+    const analysisEvents = state.events.filter(x => ['analysis','verification','repair'].includes(x.stage));
+    document.getElementById('roundCount').textContent = String(analysisEvents.length);
     await typeText(document.getElementById('json'), JSON.stringify(d.proposed_json || {}, null, 2), 1);
     renderFields(fields);
     document.getElementById('jobTitle').textContent = `${d.host} · ${job.id}`;

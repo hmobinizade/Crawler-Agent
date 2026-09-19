@@ -49,5 +49,6 @@ def test_tool_loop_budget_is_bounded_in_source():
     text = src.read_text(encoding='utf-8')
     assert '_run_tool_agent' in text
     assert 'browser_evaluate' in text
-    assert 'chat_json(' in text
+    assert 'chat_with_tools(' in text
+    assert 'max_tool_calls' in text
     assert 'def _validate_analysis(' in text

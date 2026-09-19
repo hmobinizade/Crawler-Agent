@@ -18,7 +18,7 @@
   "author": ""
 }</textarea></div>
 <button id="discover" class="primary-button"><span>Start deep analysis</span><span class="button-arrow">→</span></button>
-<div class="analysis-meter"><div class="analysis-meter-head"><span>Pipeline</span><span id="runId">—</span></div><div class="pipeline-stages"><span data-stage="browser_prepare">Browser</span><span data-stage="scroll">Scroll</span><span data-stage="recon">Recon</span><span data-stage="investigation">Fields</span><span data-stage="synthesis">Synthesis</span><span data-stage="verification">Verify</span><span data-stage="repair">Repair</span><span data-stage="finalize">Done</span></div></div>
+<div class="analysis-meter"><div class="analysis-meter-head"><span>Pipeline</span><span id="runId">—</span></div><div class="pipeline-stages"><span data-stage="browser_prepare">Browser</span><span data-stage="scroll">Scroll</span><span data-stage="analysis">Agent</span><span data-stage="verification">Verify</span><span data-stage="repair">Retry</span><span data-stage="finalize">Done</span></div></div>
 <div id="steps" class="trace-list"></div></section>
 <section class="panel result-panel"><div class="panel-heading result-heading"><div><span class="step-label">02</span><h2>Final extraction structure</h2></div><div class="result-meta"><span id="method" class="method-badge">PLAYWRIGHT</span><span id="status" class="status-badge neutral">IDLE</span></div></div>
 <div id="alert" class="warning-card hidden"></div>
@@ -26,4 +26,4 @@
 <div class="split-cards"><div class="json-card"><div class="card-bar"><span>Proposed JSON</span><span class="mono-label">OUTPUT</span></div><pre id="json">Waiting for analysis…</pre></div>
 <div class="fields-card"><div class="card-bar"><span>Field map</span><span class="mono-label">VERIFIED</span></div><div id="fields" class="fields-table"></div></div></div>
 <div class="analysis-footer"><div><strong id="jobTitle">No analysis yet</strong><div id="jobMeta" class="muted-small">Artifacts are saved under the domain automatically.</div></div><div class="inline-actions"><a id="openCodegen" class="secondary-button mini disabled-link" href="/codegen">Open in Codegen</a><a id="openCrawler" class="secondary-button mini disabled-link" href="/crawler">Run in Crawler</a></div></div>
-</section></main></div><script type="module" src="/static/discover.js?v=25"></script></body></html>
+</section></main></div><script type="module" src="/static/discover.js?v=26"></script></body></html>

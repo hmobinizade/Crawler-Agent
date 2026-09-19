@@ -56,15 +56,12 @@ class ArtifactStore:
             files.append(self.write_json(directory / "05_analysis_response.json", analysis_response))
         if stage_artifacts:
             stage_map = {
-                "round1_recon_prompt": ("06_round1_recon_prompt.txt", "text"),
-                "round1_recon": ("07_round1_recon.json", "json"),
-                "round2_field_prompt": ("08_round2_field_prompt.txt", "text"),
-                "round2_investigation": ("09_round2_investigation.json", "json"),
-                "round4_synthesis_prompt": ("10_round4_synthesis_prompt.txt", "text"),
-                "round4_synthesis": ("11_round4_synthesis.json", "json"),
-                "round5_repair_prompt": ("12_round5_repair_prompt.txt", "text"),
-                "round5_repair": ("13_round5_repair.json", "json"),
-                "verification": ("14_verification.json", "json"),
+                "analysis_prompt": ("06_direct_analysis_prompt.txt", "text"),
+                "analysis_response": ("07_direct_analysis_response.json", "json"),
+                "repair_prompt": ("08_repair_prompt.txt", "text"),
+                "repair_response": ("09_repair_response.json", "json"),
+                "verification": ("10_verification.json", "json"),
+                "final_structure": ("11_final_structure.json", "json"),
             }
             for key, (filename, kind) in stage_map.items():
                 value = stage_artifacts.get(key)

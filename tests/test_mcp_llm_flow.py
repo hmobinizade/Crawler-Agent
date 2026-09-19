@@ -38,9 +38,9 @@ class FakeBrowser:
 
 class FakeLLM:
     def __init__(self): self.tool_calls=[]; self.chat_json_calls=[]
-    async def chat_with_tools(self, system, user, tools, executor, max_rounds, max_tool_output_chars, max_repeated_tool_calls, round_delay_seconds, on_event):
-        stage='recon' if 'reconnaissance' in system.lower() else 'field'
-        self.tool_calls.append((stage,max_rounds))
+    async def chat_with_tools(self, system, user, tools, executor, max_rounds, max_tool_output_chars, max_repeated_tool_calls, max_tool_calls=None, round_delay_seconds=0.0, on_event=None):
+        stage='analysis' if 'senior web-forensics' in system.lower() else 'repair'
+        self.tool_calls.append((stage,max_rounds,max_tool_calls))
         # Exercise one tool call through the real executor path.
         await on_event('round_start', {'round':1,'max_rounds':max_rounds})
         result = await executor('browser_evaluate', {'function':'() => ({targeted:true})'})
@@ -49,7 +49,7 @@ class FakeLLM:
         await on_event('final_response', {'round':1})
         if stage=='recon':
             return {'page_type':'article','page_title':'Example','regions':[],'collection_regions':[],'metadata_sources':[],'special_behaviors':['none'],'anti_bot_state':'NONE','notes':[]}
-        return {'fields':[{'path':'title','found':True,'value':'Example title','selector':'h1.article-title','selector_type':'css','selector_candidates':['h1.article-title'],'confidence':0.99}], 'field_notes':[]}
+        return {'page_title':'Example','anti_bot_state':'NONE','fields':[{'path':'title','found':True,'value':'Example title','selector':'h1.article-title','selector_type':'css','selector_candidates':['h1.article-title'],'confidence':0.99}], 'proposed_json':{'title':'Example'}, 'evidence':[], 'crawler_notes':[]}
     async def chat_json(self, system, user, max_tokens=None):
         self.chat_json_calls.append((system,user))
         return {'page_title':'Example','anti_bot_state':'NONE','proposed_json':{'title':'Example title'},'fields':[{'path':'title','found':True,'value':'Example title','selector':'h1.article-title','selector_type':'css','selector_candidates':['h1.article-title'],'confidence':0.99}]}
@@ -61,6 +61,7 @@ def test_multi_round_analysis_uses_bounded_browser_tools():
     result=asyncio.run(run())
     assert result.proposed_json['title']=='Example title'
     assert [x[0] for x in browser.calls].count('browser_evaluate') >= 3
-    assert llm.tool_calls[0][1] == 2
-    assert llm.tool_calls[1][1] == 3
-    assert len(llm.chat_json_calls) == 1
+    assert llm.tool_calls[0][0] == 'analysis'
+    assert llm.tool_calls[0][1] == 4
+    assert llm.tool_calls[0][2] == 9
+    assert len(llm.chat_json_calls) == 0

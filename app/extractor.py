@@ -11,6 +11,72 @@ from .models import DiscoveryResult, FieldPlan
 from .prompts import DISCOVERY_SYSTEM, RECON_SYSTEM, FIELD_SYSTEM, SYNTHESIS_SYSTEM, REPAIR_SYSTEM
 from .settings import settings
 
+DIRECT_TOOL_SYSTEM = r"""
+You are a senior web-forensics and extraction engineer.
+You are analyzing the CURRENT page already open in the Playwright browser.
+The JSON template is the authoritative contract. Your job is to discover the exact executable
+extraction rules for every requested field, using the browser tools yourself.
+
+You MUST inspect the real page before deciding. Do not rely on generic website conventions.
+Do not invent selectors, values, authors, dates, comments, or collections.
+
+ALLOWED BEHAVIOR
+- Use browser_snapshot and browser_evaluate to inspect the current page.
+- You may click ONLY same-page controls that clearly expand content such as comments, replies,
+  load more, show more, or disclosure buttons.
+- Never navigate, reload, go back, go forward, or open another page.
+- Work with the current rendered DOM after lazy loading/interaction.
+
+WORK IN THIS ORDER
+1. Recon the page once. Identify article/main regions, metadata/JSON-LD, repeated collections,
+   related links, media, comments/replies, and any lazy-loaded areas relevant to the template.
+2. Investigate each requested field only as needed. Use targeted DOM queries rather than dumping the whole page.
+3. For every scalar field, return an exact primary extraction rule plus up to 6 alternative rules
+   that resolve to the SAME intended value.
+4. For body/full_text, identify the smallest stable container containing the COMPLETE article, not the first paragraph.
+   Exclude ads, related content, comments, share blocks, navigation, footer, newsletter, and cookie/popup content.
+5. For collections, identify the repeated item selector and item_fields. `@href`, `@src`, `@text`/`text` are valid direct item values.
+   Never return only the first item.
+6. Verify selectors with browser_evaluate before finalizing. Check count/cardinality and representative value.
+7. If evidence conflicts or a field is ambiguous, inspect again instead of guessing.
+8. Do not return large content. Values are only short samples.
+
+ANTI-HALLUCINATION RULES
+- found=true ONLY if you personally verified the field on the current page.
+- confidence is NOT allowed to be used as evidence; evidence must come from the page.
+- If a field cannot be verified, return found=false and value=null.
+- Never create a selector just because it looks plausible. Execute/verify it first.
+- A generic selector (div, article, main, .content, .title, etc.) is invalid unless it is scoped and uniquely identifies the intended element.
+
+RETURN ONLY JSON:
+{
+  "page_title":"",
+  "anti_bot_state":"NONE|CHALLENGE|LOGIN|CONSENT|BLOCKED|UNKNOWN",
+  "proposed_json":{},
+  "fields":[
+    {
+      "path":"",
+      "value_type":"string|number|boolean|array|object|null",
+      "selector":"...",
+      "selector_type":"css|xpath|meta|jsonld|attribute|text|none",
+      "attribute":null,
+      "selector_candidates":[],
+      "scope_selector":null,
+      "extraction_hint":"",
+      "found":false,
+      "value":null,
+      "evidence":"",
+      "confidence":0.0,
+      "item_selector":null,
+      "item_fields":{},
+      "collection_count":null
+    }
+  ],
+  "evidence":[],
+  "crawler_notes":[]
+}
+"""
+
 CHALLENGE_RE = re.compile(
     r"captcha|verify you are human|are you human|access denied|unusual traffic|bot detection|robot check|security check|cloudflare",
     re.I,
@@ -433,6 +499,66 @@ def compact_browser_evidence() -> str:
     }"""
 
 
+def verify_exact_selectors_js(specs: list[dict[str, Any]]) -> str:
+    """Verify ONLY the selectors/candidates proposed by the agent.
+
+    No semantic guessing is performed here. A field that cannot be reproduced from its
+    proposed extraction rule is treated as unverified and must go through repair.
+    """
+    specs_json = json.dumps(specs, ensure_ascii=False, separators=(",", ":"))
+    return f"""() => {{
+      const specs = {specs_json};
+      const norm = s => String(s ?? '').replace(/\\u00a0/g,' ').replace(/\\s+/g,' ').trim();
+      const visible = el => {{ if (!el) return false; const s=getComputedStyle(el), r=el.getBoundingClientRect(); return s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0&&r.width>0&&r.height>0; }};
+      const scopeRoot = scope => {{ if(!scope) return document; try{{return document.querySelector(scope)||document}}catch{{return document}} }};
+      const stableClass = c => /^[A-Za-z_][A-Za-z0-9_-]{{1,60}}$/.test(c) && !/^(active|selected|show|open|hidden|visible|disabled|loading)$/i.test(c);
+      const uniqueSelector = (el, root) => {{
+        if(!el) return null; root = root || document; const count=q=>{{try{{return (root===document?document:root).querySelectorAll(q).length}}catch{{return -1}}}};
+        const esc=s=>CSS.escape(String(s)); const push=[];
+        const add=q=>{{if(q&&!push.includes(q)&&count(q)===1)push.push(q)}};
+        for(const a of ['data-testid','data-qa','data-cy']){{const v=el.getAttribute(a);if(v)add(`${{el.tagName.toLowerCase()}}[${{a}}="${{String(v).replaceAll('"','\\"')}}"]`)}}
+        if(el.id)add('#'+esc(el.id)); const name=el.getAttribute('name'); if(name)add(`${{el.tagName.toLowerCase()}}[name="${{String(name).replaceAll('"','\\"')}}"]`);
+        const cls=[...el.classList].filter(stableClass).slice(0,3); if(cls.length)add(`${{el.tagName.toLowerCase()}}.${{cls.map(esc).join('.')}}`);
+        const parts=[]; let n=el;
+        for(let d=0;n&&d<8&&n.nodeType===1;d++,n=n.parentElement){{let part=n.tagName.toLowerCase();const cs=[...n.classList].filter(stableClass).slice(0,3);for(const c of cs)part+='.'+esc(c);const same=n.parentElement?[...n.parentElement.children].filter(x=>x.tagName===n.tagName):[];if(same.length>1)part+=`:nth-of-type(${{same.indexOf(n)+1}})`;parts.unshift(part);add(parts.join(' > '));}}
+        return push.slice(0,6);
+      }};
+      const jsonldObjects=()=>{{const out=[];for(const s of document.querySelectorAll('script[type="application/ld+json"]')){{try{{const x=JSON.parse(s.textContent||'');Array.isArray(x)?out.push(...x):out.push(x)}}catch{{}}}}return out.filter(x=>x&&typeof x==='object')}};
+      const jsonldGet=path=>{{for(const obj of jsonldObjects()){{let cur=obj;for(const p of String(path).split('.'))cur=(cur&&typeof cur==='object')?cur[p]:undefined;if(cur!==undefined&&cur!==null&&cur!=='')return cur}}return null}};
+      const textValue=(root,text)=>{{if(!text)return null;const wanted=norm(text);const nodes=[...(root||document).querySelectorAll('*')].filter(visible).sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);const ex=nodes.find(e=>norm(e.innerText||'')===wanted);if(ex)return norm(ex.innerText||'');return null}};
+      const readNode=(el,spec)=>{{if(!el)return null;if(spec.attribute)return norm(el.getAttribute(spec.attribute)||'');if(spec.selector_type==='meta')return norm(el.getAttribute('content')||'');if(/body|full text|article body|متن|content/i.test(`${{spec.path||''}} ${{spec.extraction_hint||''}}`)){{const clone=el.cloneNode(true);for(const x of [...clone.querySelectorAll('script,style,noscript,iframe,svg,form')])x.remove();return norm(clone.innerText||'')}}return norm(el.innerText||el.textContent||'')}};
+      const itemValue=(item,fs)=>{{const q=fs&&typeof fs==='object'?fs.selector:fs;const attr=fs&&typeof fs==='object'?fs.attribute:null;if(!q||q==='text'||q==='@text')return norm(item.innerText||item.textContent||'');if(String(q).startsWith('@'))return norm(item.getAttribute(String(q).slice(1))||'');let child=null;try{{child=item.querySelector(String(q))}}catch{{}}if(!child)return null;return attr?norm(child.getAttribute(attr)||''):norm(child.innerText||child.textContent||'')}};
+      const out={{}};
+      for(const spec of specs){{
+        const root=scopeRoot(spec.scope_selector); const selectors=[spec.selector,...(spec.selector_candidates||[])].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+        let value=null, selector=null, selector_candidates=[], selector_unique=false, match_count=0, item_selector=spec.item_selector||null, item_fields=spec.item_fields||{{}}, exact=true;
+        if(spec.value_type==='array'||spec.item_selector||Object.keys(item_fields).length){{
+          for(const candidate of [spec.item_selector,...selectors].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i)){{
+            if(spec.selector_type==='jsonld' || /\\s+path\\s+/i.test(String(candidate))){{
+              const m=String(candidate).match(/^(.+?)\\s+path\\s+(.+)$/i);const raw=jsonldGet(m?m[2]:candidate);if(raw!==null&&raw!==undefined){{value=Array.isArray(raw)?raw:[raw];selector=m?m[2]:String(candidate);selector_candidates=[selector];selector_unique=true;match_count=value.length;break}}
+            }}
+            if(spec.selector_type==='xpath')continue;
+            let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}};
+            if(!nodes.length)continue;
+            const rows=nodes.slice(0,500).map(item=>{{const row={{}};for(const [k,fs] of Object.entries(item_fields))row[k]=itemValue(item,fs);if(!Object.keys(row).length)row.text=norm(item.innerText||item.textContent||'');return row}});
+            if(rows.some(r=>Object.values(r).some(v=>v!==null&&v!==''))){{value=rows;const cs=uniqueSelector(nodes[0],root);selector=cs[0]||String(candidate);selector_candidates=cs;selector_unique=nodes.length===1||!!cs[0];match_count=nodes.length;item_selector=selector;break}}
+          }}
+        }} else if(spec.selector_type==='jsonld'){{
+          for(const candidate of selectors){{const raw=jsonldGet(candidate);if(raw!==null&&raw!==undefined&&raw!==''){{value=raw;selector=String(candidate);selector_candidates=selectors.slice(0,6);selector_unique=true;match_count=1;break}}}}
+        }} else if(spec.selector_type==='meta' || spec.selector_type==='attribute'){{
+          for(const candidate of selectors){{let node=null;try{{node=root.querySelector(String(candidate))}}catch{{}}if(!node && spec.selector_type==='meta'){{node=[...root.querySelectorAll('meta[content]')].find(e=>[e.getAttribute('property'),e.getAttribute('name'),e.getAttribute('itemprop')].filter(Boolean).join(' ').toLowerCase()===String(candidate).toLowerCase())}}if(!node)continue;value=readNode(node,spec);if(value){{const cs=uniqueSelector(node,root);selector=cs[0]||String(candidate);selector_candidates=cs.length?cs:[String(candidate)];selector_unique=true;match_count=1;break}}}}
+        }} else if(spec.selector_type==='text'){{
+          value=textValue(root,spec.selector);if(value){{selector=spec.selector;selector_candidates=selectors.slice(0,6);selector_unique=true;match_count=1}}
+        }} else if(spec.selector_type==='xpath'){{
+          for(const candidate of selectors){{try{{const r=document.evaluate(candidate,root,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null);if(r.snapshotLength){{const node=r.snapshotItem(0);if(visible(node)){{value=readNode(node,spec);selector=candidate;selector_candidates=selectors.slice(0,6);selector_unique=r.snapshotLength===1;match_count=r.snapshotLength;break}}}}}}catch{{}}}}
+        }} else {{
+          for(const candidate of selectors){{let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}}if(!nodes.length)continue;const node=nodes.length===1?nodes[0]:nodes.find(n=>norm(spec.value||'') && norm(n.innerText||n.textContent||'').includes(norm(spec.value).slice(0,80)))||nodes[0];value=readNode(node,spec);const cs=uniqueSelector(node,root);selector=cs[0]||String(candidate);selector_candidates=cs.length?cs:[String(candidate)];selector_unique=nodes.length===1||!!cs[0];match_count=nodes.length;break}}
+        }}
+        out[spec.path]={{value,selector,selector_candidates,selector_unique,match_count,item_selector,item_fields,exact_verified:value!==null&&value!==''}};
+      }}
+      return out;
+    }}"""
+
 class ExtractorAgent:
     def __init__(self) -> None:
         self.browser = PlaywrightMCP()
@@ -656,7 +782,7 @@ class ExtractorAgent:
 
     async def _get_browser_tool_defs(self) -> list[dict[str, Any]]:
         tools = await self.browser.list_tools()
-        allowed = {"browser_snapshot", "browser_evaluate"}
+        allowed = {"browser_snapshot", "browser_evaluate", "browser_click"}
         selected = [t for t in tools if str(getattr(t, "name", "")) in allowed]
         return [self._mcp_tool_def(t) for t in selected]
 
@@ -670,9 +796,10 @@ class ExtractorAgent:
         stage: str,
         max_rounds: int,
         max_output_chars: int = 8000,
+        max_tool_calls: int | None = None,
     ) -> dict[str, Any]:
         async def executor(name: str, args: dict[str, Any]) -> Any:
-            if name not in {"browser_snapshot", "browser_evaluate"}:
+            if name not in {"browser_snapshot", "browser_evaluate", "browser_click"}:
                 raise RuntimeError(f"Tool not allowed in analysis phase: {name}")
             return await self.browser.call(name, args)
 
@@ -694,9 +821,72 @@ class ExtractorAgent:
             max_rounds=max_rounds,
             max_tool_output_chars=max_output_chars,
             max_repeated_tool_calls=1,
-            round_delay_seconds=0.35,
+            max_tool_calls=max_tool_calls,
+            round_delay_seconds=0.2,
             on_event=on_event,
         )
+
+    @staticmethod
+    def _normalize_compare(value: Any) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+    @classmethod
+    def _field_confidence(cls, field: FieldPlan, raw_model: dict[str, Any] | None, verified: dict[str, Any] | None) -> float:
+        """Deterministic confidence score. Model-provided confidence is only a small tie-breaker."""
+        raw_model = raw_model or {}
+        verified = verified or {}
+        value = verified.get("value")
+        if value in (None, "", []):
+            return 0.0
+
+        score = 0.35  # verified non-empty value exists
+        if verified.get("selector"):
+            score += 0.15
+        if verified.get("selector_unique"):
+            score += 0.20
+
+        # Shape/cardinality checks.
+        if field.value_type == "array":
+            if isinstance(value, list) and value:
+                score += 0.15
+            if field.item_selector or field.item_fields:
+                score += 0.05
+        elif field.value_type == "object":
+            if isinstance(value, dict) and value:
+                score += 0.15
+        elif field.value_type == "number":
+            if isinstance(value, (int, float)) or re.search(r"-?\d+(?:\.\d+)?", str(value)):
+                score += 0.15
+        elif field.value_type == "boolean":
+            if isinstance(value, bool) or str(value).lower() in {"true", "false"}:
+                score += 0.15
+        else:
+            if str(value).strip():
+                score += 0.15
+
+        # Agreement between model sample and live verified value.
+        model_value = raw_model.get("value")
+        if model_value not in (None, "", []):
+            if isinstance(model_value, list) and isinstance(value, list):
+                if not model_value or not value:
+                    agreement = 0.0
+                else:
+                    left = {cls._normalize_compare(x) for x in model_value if x not in (None, "")}
+                    right = {cls._normalize_compare(x) for x in value if x not in (None, "")}
+                    agreement = 1.0 if left and left.issubset(right) else (0.7 if left & right else 0.0)
+            else:
+                a = cls._normalize_compare(model_value)
+                b = cls._normalize_compare(value)
+                agreement = 1.0 if a and b and (a == b or a in b or b in a) else 0.0
+            score += 0.10 * agreement
+
+        # The model confidence is only a 5% tie-breaker; it can never create confidence by itself.
+        score += 0.05 * max(0.0, min(float(raw_model.get("confidence", 0.0) or 0.0), 1.0))
+        return max(0.0, min(score, 1.0))
+
+    @staticmethod
+    def _weak_fields(fields: list[FieldPlan], threshold: float) -> list[FieldPlan]:
+        return [f for f in fields if f.required and (not f.found or f.confidence < threshold or not f.selector)]
 
     async def _inspect_with_mcp(
         self,
@@ -710,83 +900,16 @@ class ExtractorAgent:
 
         await self._emit(progress_cb, "browser_prepare", "Playwright MCP session is ready on the requested page.")
 
-        scroll_js = r"""async () => {
-          const sleep = ms => new Promise(r => setTimeout(r, ms));
-          let lastHeight = 0, stable = 0;
-          for (let i = 0; i < 28; i++) {
-            window.scrollBy({top: Math.max(360, Math.floor(window.innerHeight * 0.85)), behavior: 'auto'});
-            await sleep(220);
-            const h = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
-            if (h === lastHeight) stable++; else stable = 0;
-            lastHeight = h;
-            if (stable >= 3) break;
-          }
-          window.scrollTo({top: 0, behavior: 'auto'});
-          await sleep(300);
-          return {height:lastHeight, url:location.href, title:document.title};
-        }"""
-        await self._emit(progress_cb, "scroll", "Scrolling through the full rendered page to trigger lazy-loaded content.")
+        # One bounded preparation step. If comments/replies are requested, safely expose them when possible.
+        want_collections = any(re.search(r"comment|reply|دیدگاه|نظر|پاسخ", str(x.get("path", "")), re.I) for x in contract)
+        await self._emit(progress_cb, "scroll", "Scrolling the rendered page and exposing lazy-loaded content.")
         try:
-            scroll_result = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": scroll_js}))
+            prep = await self.browser.call("browser_evaluate", {"function": prepare_page(want_collections)})
+            self.last_artifacts["scroll_result"] = self._coerce_mcp_payload(prep)
         except Exception as exc:
-            raise RuntimeError(f"Playwright MCP scroll failed: {exc}") from exc
-        await self._emit(progress_cb, "scroll", "Page scroll completed; browser returned to the top.", scroll_result if isinstance(scroll_result, dict) else {})
+            await self._emit(progress_cb, "scroll", f"Page preparation warning: {exc}", level="warning")
 
-        await self._emit(progress_cb, "recon", "Starting round 1: page reconnaissance.")
-        tool_defs = await self._get_browser_tool_defs()
-        if not tool_defs:
-            raise RuntimeError("Playwright MCP did not expose browser_snapshot/browser_evaluate tools")
-        recon_user = f"""
-CURRENT URL: {url}
-AUTHORITATIVE TEMPLATE:
-{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
-LEAF CONTRACT:
-{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
-
-Inspect the already-open page. Build a compact map of the page structure, metadata sources,
-article/content regions, repeated collections, JSON-LD, and any special behavior relevant to the template.
-Use the browser tools sparingly: one snapshot if useful and only targeted evaluate calls. Never navigate.
-"""
-        recon = await self._run_tool_agent(
-            system=RECON_SYSTEM,
-            user=recon_user,
-            tools=tool_defs,
-            progress_cb=progress_cb,
-            stage="recon",
-            max_rounds=2,
-            max_output_chars=8000,
-        )
-        self.last_artifacts["round1_recon_prompt"] = recon_user
-        self.last_artifacts["round1_recon"] = recon
-
-        await self._emit(progress_cb, "investigation", "Starting round 2: field-by-field investigation.")
-        field_user = f"""
-CURRENT URL: {url}
-AUTHORITATIVE TEMPLATE:
-{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
-LEAF CONTRACT:
-{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
-
-RECONNAISSANCE RESULT:
-{json.dumps(recon, ensure_ascii=False, separators=(',', ':'))}
-
-Investigate every requested field on the CURRENT page. Use targeted browser_snapshot/browser_evaluate calls only
-when necessary. Prioritize exact DOM evidence, JSON-LD/meta evidence, collection cardinality, and robust selector candidates.
-Do not echo long content. Never navigate to another URL.
-"""
-        investigation = await self._run_tool_agent(
-            system=FIELD_SYSTEM,
-            user=field_user,
-            tools=tool_defs,
-            progress_cb=progress_cb,
-            stage="investigation",
-            max_rounds=3,
-            max_output_chars=9000,
-        )
-        self.last_artifacts["round2_field_prompt"] = field_user
-        self.last_artifacts["round2_investigation"] = investigation
-
-        await self._emit(progress_cb, "source_capture", "Capturing the full post-render HTML for artifacts and deterministic verification.")
+        # Save the complete rendered source for audit/artifacts. It is NOT sent wholesale to the LLM.
         try:
             source_raw = await self.browser.call("browser_evaluate", {"function": "() => document.documentElement.outerHTML"})
             source_html = self._coerce_source(source_raw)
@@ -794,77 +917,110 @@ Do not echo long content. Never navigate to another URL.
             raise RuntimeError(f"Playwright MCP source capture failed: {exc}") from exc
         if not source_html.strip():
             raise RuntimeError("Playwright returned an empty rendered HTML source")
-        self._limit_llm_source(source_html) if settings.llm_source_max_chars else None
+        self.last_artifacts["source_html"] = source_html
 
+        tool_defs = await self._get_browser_tool_defs()
+        if not tool_defs:
+            raise RuntimeError("Playwright MCP did not expose browser_snapshot/browser_evaluate/browser_click tools")
+
+        direct_user = f"""
+CURRENT URL: {url}
+HOST: {host}
+
+AUTHORITATIVE JSON TEMPLATE:
+{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
+
+REQUIRED LEAF CONTRACT:
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
+
+You have a real Playwright browser for the CURRENT page. Investigate it yourself with the available tools.
+Do NOT navigate away. The purpose is to build the most accurate Extraction Structure possible, not to summarize the page.
+
+STRICT INVESTIGATION PRIORITIES:
+- Start with one browser_snapshot. Then use targeted browser_evaluate calls only where necessary.
+- You may click same-page controls that clearly expand comments/replies/load-more/show-more, but never open links or navigate.
+- Inspect the actual DOM hierarchy, stable attributes, JSON-LD/meta sources, repeated collections, and article containers.
+- For every field, execute/verify the proposed selector before returning it.
+- For each field return a primary selector and up to 6 candidate selectors/rules that resolve to the SAME intended value.
+- For collections, return the repeated item selector and relative item_fields. @href/@src/@text are valid direct item fields.
+- For body/full_text, verify the container contains all article paragraphs and excludes ads/related/comments/share/footer/navigation.
+- If evidence is ambiguous, perform another targeted inspection rather than guessing.
+
+ANTI-HALLUCINATION:
+- found=true only after the browser confirms the field.
+- Never trust a plausible selector that has not been executed.
+- Never invent values from common news-site conventions.
+- Missing or ambiguous => found=false and value=null.
+- The confidence number is only a report; the server will independently score the field from verification.
+
+RETURN ONLY JSON using the requested field schema. Keep samples short; never return full body/comments/html.
+"""
+        self.last_artifacts["analysis_prompt"] = direct_user
+        await self._emit(progress_cb, "analysis", f"Starting bounded browser-agent investigation (max {settings.llm_discovery_max_rounds} rounds / {settings.llm_discovery_max_tool_calls} tool calls).")
+        analysis = await self._run_tool_agent(
+            system=DIRECT_TOOL_SYSTEM,
+            user=direct_user,
+            tools=tool_defs,
+            progress_cb=progress_cb,
+            stage="analysis",
+            max_rounds=settings.llm_discovery_max_rounds,
+            max_output_chars=12000,
+            max_tool_calls=settings.llm_discovery_max_tool_calls,
+        )
+        self.last_artifacts["analysis_response"] = analysis
+
+        fields, missing, proposed = self._validate_analysis(analysis, contract)
+        by_path = {str(x.get("path")): x for x in (analysis.get("fields") or []) if isinstance(x, dict)}
+
+        await self._emit(progress_cb, "verification", "Running strict selector verification against the live browser DOM (no semantic guessing).")
+        verified = {}
         try:
-            page_info = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": "() => ({title:document.title,url:location.href})"}))
-        except Exception:
-            page_info = {}
-        page_title = str(page_info.get("title") or "") if isinstance(page_info, dict) else ""
+            raw_verified = await self.browser.call("browser_evaluate", {"function": verify_exact_selectors_js([f.model_dump() for f in fields])})
+            verified = self._coerce_mcp_payload(raw_verified)
+        except Exception as exc:
+            await self._emit(progress_cb, f"verification", f"Exact verification failed: {exc}", level="error")
+            verified = {}
 
-        await self._emit(progress_cb, "synthesis", "Starting round 4: critic + final structure synthesis.")
-        synthesis_user = f"""
+        fields, missing, proposed = self._merge_verification(fields, verified)
+        for field in fields:
+            raw_item = by_path.get(field.path, {})
+            v = verified.get(field.path) if isinstance(verified, dict) else None
+            field.confidence = self._field_confidence(field, raw_item, v if isinstance(v, dict) else {})
+
+        threshold = settings.llm_confidence_threshold
+        weak = self._weak_fields(fields, threshold)
+        repair_attempts = 0
+
+        while weak and repair_attempts < 1:
+            repair_attempts += 1
+            await self._emit(progress_cb, "repair", f"{len(weak)} field(s) are below the {threshold:.0%} verification threshold; running one targeted retry.", meta={"paths": [f.path for f in weak]})
+            repair_contract = [f.model_dump() for f in weak]
+            repair_user = f"""
 CURRENT URL: {url}
 AUTHORITATIVE TEMPLATE:
 {json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
-LEAF CONTRACT:
-{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
 
-ROUND 1 — RECON:
-{json.dumps(recon, ensure_ascii=False, separators=(',', ':'))}
-
-ROUND 2 — FIELD INVESTIGATION:
-{json.dumps(investigation, ensure_ascii=False, separators=(',', ':'))}
-
-Create the final Extraction Structure. Reconcile evidence conservatively. Every requested field must appear exactly once.
-Do not copy large content. For each field provide the best primary selector and robust candidates. Collections must have
-item_selector/item_fields. Mark unsupported fields found=false/null.
-Return ONLY JSON.
-"""
-        synthesis = await self.llm.chat_json(SYNTHESIS_SYSTEM, synthesis_user, max_tokens=settings.llm_max_tokens)
-        self.last_artifacts["round4_synthesis_prompt"] = synthesis_user
-        self.last_artifacts["round4_synthesis"] = synthesis
-        fields, missing, proposed = self._validate_analysis(synthesis, contract)
-
-        await self._emit(progress_cb, "verification", "Verifying every proposed selector against the live browser DOM.")
-        verify_specs = [f.model_dump() for f in fields]
-        verified = {}
-        try:
-            raw_verified = await self.browser.call("browser_evaluate", {"function": verify_and_extract_js(verify_specs)})
-            verified = self._coerce_mcp_payload(raw_verified)
-            fields, missing, proposed = self._merge_verification(fields, verified)
-        except Exception as exc:
-            self.last_artifacts["verification_error"] = str(exc)
-            await self._emit(progress_cb, "verification", f"Verification warning: {exc}", level="warning")
-
-        # Optional repair round: only target fields that are still missing or have weak verification.
-        repair_targets = [f for f in fields if f.required and (not f.found or not f.selector or f.confidence < 0.78)]
-        if repair_targets:
-            await self._emit(progress_cb, "repair", f"Starting optional repair round for {len(repair_targets)} weak field(s).")
-            repair_contract = [f.model_dump() for f in repair_targets]
-            repair_user = f"""
-CURRENT URL: {url}
-REPAIR TARGETS:
+WEAK FIELDS ONLY:
 {json.dumps(repair_contract, ensure_ascii=False, separators=(',', ':'))}
-PREVIOUS SYNTHESIS:
-{json.dumps(synthesis, ensure_ascii=False, separators=(',', ':'))}
-VERIFICATION RESULT:
-{json.dumps(verified, ensure_ascii=False, separators=(',', ':'))}
 
-Inspect ONLY these weak fields on the current page. Prefer one or two targeted browser_evaluate calls.
-Return corrected field records only. Do not navigate.
+STRICT VERIFICATION FROM PREVIOUS PASS:
+{json.dumps({k: verified.get(k) for k in [f.path for f in weak] if isinstance(verified, dict)}, ensure_ascii=False, separators=(',', ':'))}
+
+Repair ONLY these weak fields. Use the Playwright tools to inspect the current page. Verify every replacement rule.
+Do not revisit strong fields. Do not navigate. Do not invent a value. Return corrected field records only.
 """
+            self.last_artifacts["repair_prompt"] = repair_user
             repair = await self._run_tool_agent(
                 system=REPAIR_SYSTEM,
                 user=repair_user,
                 tools=tool_defs,
                 progress_cb=progress_cb,
                 stage="repair",
-                max_rounds=2,
+                max_rounds=settings.llm_repair_max_rounds,
                 max_output_chars=8000,
+                max_tool_calls=settings.llm_repair_max_tool_calls,
             )
-            self.last_artifacts["round5_repair_prompt"] = repair_user
-            self.last_artifacts["round5_repair"] = repair
+            self.last_artifacts["repair_response"] = repair
             repair_fields = repair.get("fields") if isinstance(repair, dict) else None
             if isinstance(repair_fields, list):
                 merged = {f.path: f for f in fields}
@@ -875,64 +1031,66 @@ Return corrected field records only. Do not navigate.
                     old = merged.get(path)
                     if old is None:
                         continue
-                    candidate = FieldPlan.model_validate({**old.model_dump(), **item})
-                    merged[path] = candidate
+                    merged[path] = FieldPlan.model_validate({**old.model_dump(), **item})
                 fields = [merged[f.path] for f in fields]
-                verified = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": verify_and_extract_js([f.model_dump() for f in fields])}))
-                fields, missing, proposed = self._merge_verification(fields, verified)
-        else:
-            await self._emit(progress_cb, "repair", "No repair round needed; verified structure is strong.")
+            await self._emit(progress_cb, "verification", "Re-verifying repaired selectors against the live DOM.")
+            try:
+                raw_verified = await self.browser.call("browser_evaluate", {"function": verify_exact_selectors_js([f.model_dump() for f in fields])})
+                verified = self._coerce_mcp_payload(raw_verified)
+            except Exception as exc:
+                await self._emit(progress_cb, "verification", f"Repair verification failed: {exc}", level="error")
+                verified = {}
+            fields, missing, proposed = self._merge_verification(fields, verified)
+            by_path = {str(x.get("path")): x for x in (repair.get("fields") or []) if isinstance(x, dict)}
+            for field in fields:
+                v = verified.get(field.path) if isinstance(verified, dict) else None
+                field.confidence = self._field_confidence(field, by_path.get(field.path, {}), v if isinstance(v, dict) else {})
+            weak = self._weak_fields(fields, threshold)
 
-        anti_bot_state = str(synthesis.get("anti_bot_state") or recon.get("anti_bot_state") or "NONE")
-        status = "INCOMPLETE" if missing else "READY"
+        # Final hallucination gate: model output is never allowed to override live verification.
+        final_failures = [f.path for f in fields if f.required and (not f.found or f.confidence < threshold or not f.selector)]
+        status = "READY" if not final_failures else "INCOMPLETE"
+        anti_bot_state = str(analysis.get("anti_bot_state") or "NONE")
         if anti_bot_state in {"CHALLENGE", "LOGIN", "BLOCKED"}:
             status = "NEEDS_HUMAN"
 
-        self.last_artifacts.update({
-            "source_html": source_html,
-            "verification": verified,
-            "final_structure": {
-                "status": status,
-                "host": host,
-                "url": url,
-                "page_title": page_title,
-                "anti_bot_state": anti_bot_state,
-                "template": template,
-                "proposed_json": proposed,
-                "fields": [f.model_dump() for f in fields],
-                "missing_required": missing,
-                "method": "playwright",
-            },
-            "analysis_mode": "multi_round_playwright",
-        })
+        self.last_artifacts["verification"] = verified
+        self.last_artifacts["confidence_threshold"] = threshold
+        self.last_artifacts["final_structure"] = {
+            "status": status,
+            "host": host,
+            "url": url,
+            "template": template,
+            "fields": [f.model_dump() for f in fields],
+            "missing_required": final_failures,
+            "confidence_threshold": threshold,
+        }
 
-        await self._emit(progress_cb, "finalize", f"Analysis complete: {status}. {len(fields) - len(missing)}/{len(fields)} fields verified.")
+        await self._emit(progress_cb, "finalize", f"Analysis complete: {status}. {len(fields)-len(final_failures)}/{len(fields)} fields are >= {threshold:.0%} verified confidence.")
         return DiscoveryResult(
             status=status,
             host=host,
             url=url,
-            page_title=page_title or str(synthesis.get("page_title") or recon.get("page_title") or ""),
+            page_title=str(analysis.get("page_title") or ""),
             anti_bot_state=anti_bot_state,
             method="playwright",
-            method_reason="Playwright-only multi-round analysis with bounded MCP tool calls, targeted field investigation, deterministic verification, and optional repair.",
+            method_reason="Playwright MCP direct-agent analysis with bounded tool budget, strict verification, and a 95% confidence retry gate.",
             source="playwright",
             template=template,
             proposed_json=proposed,
             fields=fields,
-            missing_required=missing,
-            evidence=[str(x)[:500] for x in (synthesis.get("evidence") or []) if x][:12],
+            missing_required=final_failures,
+            evidence=[str(x)[:500] for x in (analysis.get("evidence") or []) if x][:12],
             crawler_notes=[
-                "Round 1: page reconnaissance.",
-                "Round 2: field-by-field targeted browser investigation.",
-                "Round 3: deterministic Playwright verification.",
-                "Round 4: critic/synthesis.",
-                "Round 5: repair only when weak fields remained.",
-            ] + [str(x)[:500] for x in (synthesis.get("crawler_notes") or []) if x],
+                f"Direct Playwright agent: max {settings.llm_discovery_max_rounds} rounds / {settings.llm_discovery_max_tool_calls} tool calls.",
+                f"Deterministic strict verification threshold: {threshold:.0%}.",
+                "Weak fields are retried once; unverified values are rejected to prevent hallucinated extraction.",
+            ] + [str(x)[:500] for x in (analysis.get("crawler_notes") or []) if x],
             trace=[
-                "Playwright MCP only; no static preflight and no routing LLM.",
-                "Tool calls were limited to browser_snapshot/browser_evaluate and bounded per phase.",
-                "Full rendered HTML was captured for artifacts but was not sent wholesale to the LLM.",
-                "The LLM saw targeted browser evidence through its tool calls, then deterministic verification checked the final selectors.",
+                "Playwright MCP only; no static routing or source-to-LLM blob.",
+                "The LLM received the current-page Playwright tools directly and chose targeted inspections.",
+                "A strict verifier executed the proposed selectors/candidates without semantic guessing.",
+                f"Fields below {threshold:.0%} were retried once; remaining weak fields are marked incomplete instead of guessed.",
             ],
         )
 

@@ -115,6 +115,7 @@ class OpenAICompatibleLLM:
         max_rounds: int = 8,
         max_tool_output_chars: int = 24000,
         max_repeated_tool_calls: int = 1,
+        max_tool_calls: int | None = None,
         round_delay_seconds: float = 0.0,
         on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
@@ -129,13 +130,14 @@ class OpenAICompatibleLLM:
             {"role": "user", "content": user},
         ]
         seen_calls: dict[str, int] = {}
+        total_tool_calls = 0
         timeout = httpx.Timeout(settings.llm_timeout_seconds, connect=10.0)
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             for round_idx in range(max_rounds):
                 if on_event is not None:
                     await on_event("round_start", {"round": round_idx + 1, "max_rounds": max_rounds})
-                force_final = round_idx >= max_rounds - 1
+                force_final = round_idx >= max_rounds - 1 or (max_tool_calls is not None and total_tool_calls >= max_tool_calls)
                 payload = {
                     "model": self.model,
                     "messages": messages,
@@ -257,15 +259,22 @@ class OpenAICompatibleLLM:
                             result = {
                                 "error": "Repeated identical tool call blocked. Use the evidence already collected and finish the JSON result."
                             }
-                        else:
+                        elif max_tool_calls is not None and total_tool_calls >= max_tool_calls:
+                            result = {
+                                "error": "Tool budget exhausted. Stop inspecting and return the final JSON using the evidence already collected."
+                            }
                             if on_event is not None:
-                                await on_event("tool_call", {"round": round_idx + 1, "name": name, "arguments": args})
+                                await on_event("tool_blocked", {"round": round_idx + 1, "name": name, "reason": "tool_budget_exhausted"})
+                        else:
+                            total_tool_calls += 1
+                            if on_event is not None:
+                                await on_event("tool_call", {"round": round_idx + 1, "name": name, "arguments": args, "tool_call_index": total_tool_calls})
                             try:
                                 result = await executor(name, args)
                             except Exception as exc:
                                 result = {"error": str(exc)}
                             if on_event is not None:
-                                await on_event("tool_result", {"round": round_idx + 1, "name": name, "result_preview": str(result)[:800]})
+                                await on_event("tool_result", {"round": round_idx + 1, "name": name, "result_preview": str(result)[:800], "tool_call_index": total_tool_calls})
 
                     if isinstance(result, str):
                         content = result

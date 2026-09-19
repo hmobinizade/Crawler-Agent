@@ -4,24 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="v21.">
+    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="looping.">
       <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/adaptive.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/adaptive.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/artifacts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/codegen_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/extractor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/llm.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/mcp_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/mcp_client.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/prompts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/prompts.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/app.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/static/discover.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.html" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/frontend/static/discover.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_v10_wiring.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v10_wiring.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_validate_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_validate_analysis.py" afterDir="false" />
@@ -138,7 +131,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789754377639</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="looping.">
+      <option name="closed" value="true" />
+      <created>1789837334132</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1789837334132</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -158,14 +159,15 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="initial." />
     <MESSAGE value="v21." />
-    <option name="LAST_COMMIT_MESSAGE" value="v21." />
+    <MESSAGE value="looping." />
+    <option name="LAST_COMMIT_MESSAGE" value="looping." />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/main.py</url>
-          <line>376</line>
+          <line>374</line>
           <option name="timeStamp" value="6" />
         </line-breakpoint>
       </breakpoints>

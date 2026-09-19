@@ -19,6 +19,11 @@ class Settings:
     llm_seed: int | None = int(os.getenv("LLM_SEED")) if os.getenv("LLM_SEED") not in (None, "") else None
     llm_codegen_max_tokens: int = int(os.getenv("LLM_CODEGEN_MAX_TOKENS", "3200"))
     llm_repair_max_tokens: int = int(os.getenv("LLM_REPAIR_MAX_TOKENS", "5000"))
+    llm_discovery_max_rounds: int = int(os.getenv("LLM_DISCOVERY_MAX_ROUNDS", "4"))
+    llm_discovery_max_tool_calls: int = int(os.getenv("LLM_DISCOVERY_MAX_TOOL_CALLS", "9"))
+    llm_repair_max_rounds: int = int(os.getenv("LLM_REPAIR_MAX_ROUNDS", "2"))
+    llm_repair_max_tool_calls: int = int(os.getenv("LLM_REPAIR_MAX_TOOL_CALLS", "4"))
+    llm_confidence_threshold: float = float(os.getenv("LLM_CONFIDENCE_THRESHOLD", "0.95"))
     # 0 means no local truncation; useful with 1M-context DeepSeek models.
     llm_source_max_chars: int = int(os.getenv("LLM_SOURCE_MAX_CHARS", "0"))
     llm_codegen_html_chars: int = int(os.getenv("LLM_CODEGEN_HTML_CHARS", "120000"))
