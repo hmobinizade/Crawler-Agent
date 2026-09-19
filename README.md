@@ -1,316 +1,244 @@
-# Adaptive Crawler Studio v23
+# Adaptive Crawler Studio v25
 
-> **Analyze once. Freeze a deterministic structure. Execute it with one reusable Playwright runtime.**
+A Playwright-first, multi-round agentic web extraction system for turning a page URL + extraction template into a verified reusable `Extraction Structure`.
 
-Adaptive Crawler Studio is an agentic web-extraction workspace built around one core idea:
-
-**the Analysis Structure is the reusable asset — not the generated Python file.**
-
-The system discovers an `Extraction Structure` from a real page, stores the evidence used to build it, and then executes that structure through a shared **Playwright crawler runtime**.
-
-For unusual sites, the same structure can opt into a one-off custom Playwright crawler.
+The design goal is **high selector accuracy without sending the whole page source to the LLM** and without allowing an unbounded browser-tool loop.
 
 ---
 
-## ✨ What the system does
-
-| Workflow | Input | Output |
-|---|---|---|
-| **Discover** | URL + requested fields | Extraction Structure + saved evidence |
-| **Codegen** | Structure | Optional custom Playwright crawler |
-| **Crawler** | URL + Structure | JSONL extraction results |
-| **Files** | Existing artifacts | Preview / download / ZIP |
-
-### The normal path
+## Architecture
 
 ```text
-URL + fields
-    │
-    ▼
-┌──────────────────────┐
-│  Discovery / Agent   │
-│  Playwright + LLM    │
-└──────────┬───────────┘
-           │
-           ▼
-   Extraction Structure
-           │
-           ▼
-┌──────────────────────┐
-│ Generic Playwright   │
-│ Crawler Runtime      │
-└──────────┬───────────┘
-           │
-           ▼
-       JSON / JSONL
-```
-
-### The exception path
-
-```text
-Extraction Structure
+URL + JSON Template
         │
         ▼
-   Custom Codegen
+   Playwright MCP
+        │
+        ├── Navigate
+        ├── Gradual scroll to bottom
+        └── Return to top
         │
         ▼
-Custom Playwright crawler
+┌───────────────────────────────┐
+│ Round 1 — Recon               │
+│ LLM + bounded browser tools   │
+└───────────────┬───────────────┘
+                ▼
+┌───────────────────────────────┐
+│ Round 2 — Field Investigation │
+│ targeted browser inspection   │
+└───────────────┬───────────────┘
+                ▼
+┌───────────────────────────────┐
+│ Round 3 — Deterministic       │
+│ selector verification         │
+└───────────────┬───────────────┘
+                ▼
+┌───────────────────────────────┐
+│ Round 4 — Critic + Synthesis  │
+│ LLM, no browser tools         │
+└───────────────┬───────────────┘
+                ▼
+      Weak required fields?
+          │          │
+         No         Yes
+          │          ▼
+          │   Round 5 — Repair
+          │   bounded browser tools
+          │          │
+          └──────┬───┘
+                 ▼
+        Final Extraction Structure
 ```
 
-The custom path is an **escape hatch**, not the default architecture.
+### Why this design?
+
+The browser is the source of truth, not an HTML summary and not an LLM-generated guess.
+
+The LLM can inspect the live page through a **small, bounded tool budget**:
+
+- Round 1: up to 2 LLM/tool rounds.
+- Round 2: up to 3 LLM/tool rounds.
+- Round 4: 1 normal JSON call, no browser tools.
+- Round 5: only when required fields remain weak/missing, up to 2 LLM/tool rounds.
+
+Only these MCP browser tools are exposed during analysis:
+
+- `browser_snapshot`
+- `browser_evaluate`
+
+Navigation/reload/back/forward/close are never exposed to the analysis agent.
+
+This keeps the analysis powerful enough to inspect the DOM deeply while preventing the old unbounded tool-loop/token-spend problem.
 
 ---
 
-## 🧠 Architecture
+## What the LLM actually sees
 
-### 1. Discovery
+The system **does not send the complete raw HTML source to the LLM**.
 
-Discovery receives only:
-
-```text
-URL
-+
-JSON template of requested fields
-```
-
-It can use the existing Playwright MCP workflow to open and inspect the page, scroll it, collect compact DOM evidence, and ask the LLM to produce a structured extraction plan.
-
-Saved artifacts include:
-
-```text
-generated/<domain>/job_<id>/
-├── 01_template.json
-├── 02_extraction_structure.json
-├── 03_routing_prompt.txt
-├── 04_discovery_prompt.txt
-├── 05_compact_dom_evidence.txt
-├── 06_analysis_response.json
-├── 06_source_page.html
-└── manifest.json
-```
-
-### 2. Extraction Structure
-
-The structure is the reusable contract between analysis and crawling.
-
-A simplified example:
-
-```json
-{
-  "execution": {
-    "mode": "generic"
-  },
-  "site": {
-    "host": "farsnews.ir"
-  },
-  "crawl": {
-    "delay_seconds": 1.5
-  },
-  "fields": [
-    {
-      "name": "title",
-      "path": "title",
-      "required": true,
-      "value_type": "string",
-      "selector": "h1.article-title",
-      "selector_type": "css",
-      "selector_candidates": ["h1.article-title", "h1"]
-    },
-    {
-      "name": "date",
-      "path": "date",
-      "required": true,
-      "value_type": "string",
-      "selector": "datePublished",
-      "selector_type": "jsonld"
-    }
-  ]
-}
-```
-
-The runtime respects the analyzed contract exactly. The LLM may propose a selector, but the browser verification phase resolves the real element and rewrites the final Structure with deterministic, unique selectors and verified candidates. The runtime then executes that frozen Structure without asking an LLM to reinterpret it.
-
-Every extraction also records an `extraction_trace` showing the selector/candidate attempts and the rule that actually succeeded.
-
----
-
-## 🕷️ Crawler runtime: Playwright only
-
-The current crawler layer intentionally has **no Requests/BeautifulSoup execution mode**.
-
-Every generic crawl uses:
+Instead:
 
 ```text
 Playwright
    ↓
-Navigate to one URL
+fully rendered page
    ↓
-Smooth scroll to page bottom
+LLM can inspect the live DOM through targeted browser tools
    ↓
-Return to top
-   ↓
-Extract according to Structure
-   ↓
-Return one JSON record
+only the relevant evidence returned by those tools enters the LLM context
 ```
 
-Supported extraction modes include:
-
-- CSS
-- XPath
-- text matching
-- meta tags
-- HTML attributes
-- JSON-LD scalar values
-- JSON-LD arrays and objects
-- collection item extraction
-- `@href`, `@src`, `@attribute`, `text`
-- article-body extraction with ad/related-content cleanup
-- selector candidates and scopes
-- deterministic selector canonicalization after LLM analysis
-- selector match counts and extraction traces
+The complete rendered source is still captured and saved as an artifact for debugging, reproducibility, and later code generation.
 
 ---
 
-## 📦 Standalone generic crawler
+## Analysis rounds
 
-The most important deliverable is now independent of the Studio application:
+### Round 1 — Recon
+
+The agent builds a compact page map:
+
+- page type
+- main article/content regions
+- metadata sources
+- JSON-LD
+- repeated collections
+- comments/replies
+- related-content regions
+- special behaviors
+- anti-bot/login indicators
+
+It should inspect the page, not write the final selector map yet.
+
+### Round 2 — Field Investigation
+
+Every requested field from the JSON template is investigated independently.
+
+Examples:
 
 ```text
-standalone/playwright_structure_crawler.py
+title → h1 / JSON-LD headline
+body → article container + paragraph density
+image → metadata / JSON-LD / visible hero image
+date → meta / JSON-LD / visible time element
+comments → repeated comment items + child fields
+news_urls → repeated anchors + @href + text
 ```
 
-You can give this file to a client and say:
+Collections are treated as collections. `@href`, `@src`, `text`, nested selectors, and JSON-LD arrays are supported.
 
-> "Take any compatible Extraction Structure and run it with this crawler."
+### Round 3 — Deterministic verification
 
-It does **not** depend on:
+The Python side executes the proposed selectors against the real browser DOM.
 
-- FastAPI
-- the Agentic Crawler Studio
-- an LLM
-- MCP
-- the local database
+A selector is not accepted merely because the LLM proposed it.
 
-It only needs Playwright.
+We check:
 
-### Install
+- selector execution
+- uniqueness/cardinality
+- extracted value
+- scope
+- collection count
+- item fields
+- JSON-LD shape
 
-```powershell
-cd standalone
-pip install -r requirements.txt
-playwright install chromium
-```
+### Round 4 — Critic + Synthesis
 
-### Run
+The model receives only the compact results from the previous rounds and reconciles them into the final `Extraction Structure`.
 
-```powershell
-python playwright_structure_crawler.py `
-  --url "https://example.com/article/123" `
-  --structure "structure.json" `
-  --out "results.jsonl"
-```
+### Round 5 — Targeted Repair
 
-Show the browser:
-
-```powershell
-python playwright_structure_crawler.py `
-  --url "https://example.com/article/123" `
-  --structure "structure.json" `
-  --out "results.jsonl" `
-  --headed
-```
-
-That same crawler can run many different Structures without generating duplicate crawler code.
+Only fields that remain missing, ambiguous, or weak are investigated again. The entire page is not re-analyzed.
 
 ---
 
-## 🎯 Generic vs custom
+## Live progress UI
 
-### Generic — recommended
+The Discover page now runs analysis asynchronously and polls a lightweight progress endpoint.
 
-```json
-{
-  "execution": {
-    "mode": "generic"
-  }
-}
-```
-
-The shared crawler runtime executes the structure.
-
-### Custom — exceptional cases
-
-```json
-{
-  "execution": {
-    "mode": "custom",
-    "script": "farsnews.ir/job_123/09_crawler.py"
-  }
-}
-```
-
-The Studio can execute that specific Playwright crawler instead.
-
-This is useful for sites with genuinely unusual behaviour where a reusable extraction structure is not sufficient.
-
----
-
-## 🖥️ UI
-
-The application is deliberately split into four focused areas:
-
-### Discover
-Analyze a page and produce a reusable structure.
-
-### Codegen
-Create a **custom Playwright crawler** only when necessary.
-
-### Crawler
-Give it exactly:
+Stages are shown live:
 
 ```text
-URL
-+
-Extraction Structure
+Browser → Scroll → Recon → Fields → Synthesis → Verify → Repair → Done
 ```
 
-The execution mode is read from the Structure.
+Tool calls and tool results are also logged with the stage that produced them.
 
-### Files
-Browse saved domain/job artifacts, preview text/JSON, download individual files, or download a complete job/domain bundle as ZIP.
+API endpoints:
+
+```http
+POST /analysis/start
+GET  /analysis/{run_id}
+```
+
+The older synchronous endpoint remains available for compatibility:
+
+```http
+POST /discover
+```
 
 ---
 
-## 📁 Artifact layout
+## Artifacts
+
+Every analysis is saved under:
 
 ```text
-generated/
-├── farsnews.ir/
-│   ├── job_abc123/
-│   │   ├── 01_template.json
-│   │   ├── 02_extraction_structure.json
-│   │   ├── 06_source_page.html
-│   │   ├── 09_crawler.py
-│   │   ├── 11_crawl_results.jsonl
-│   │   └── 12_crawl_run.json
-│   └── structures/
-│       ├── article_v1.json
-│       └── article_v2.json
-└── tabnak.ir/
-    └── ...
+generated/<domain>/job_<id>/
 ```
 
-Browser profiles are excluded from the artifact browser and ZIP downloads.
+Typical files:
+
+```text
+01_template.json
+02_extraction_structure.json
+03_discovery_prompt.txt
+04_source_page.html
+05_analysis_response.json
+06_round1_recon_prompt.txt
+07_round1_recon.json
+08_round2_field_prompt.txt
+09_round2_investigation.json
+10_round4_synthesis_prompt.txt
+11_round4_synthesis.json
+12_round5_repair_prompt.txt
+13_round5_repair.json
+14_verification.json
+15_final_structure.json
+manifest.json
+```
+
+The browser profile is not exposed through the artifact browser or ZIP downloads.
 
 ---
 
-## 🚀 Run the Studio
+## Configuration
+
+Example `.env`:
+
+```env
+LLM_BASE_URL=https://api.deepseek.com/v1
+LLM_API_KEY=YOUR_API_KEY
+LLM_MODEL=deepseek-flash
+LLM_TIMEOUT_SECONDS=180
+LLM_MAX_TOKENS=6000
+LLM_SEED=42
+
+MCP_MODE=stdio
+MCP_COMMAND=npx
+MCP_ARGS=["@playwright/mcp@latest","--user-data-dir",".browser-profile"]
+```
+
+For a one-million-token context deployment, the application does not locally truncate the saved HTML. The HTML is stored for artifacts, while the active LLM context is controlled by the bounded browser-tool rounds.
+
+---
+
+## Run locally
 
 ```powershell
 pip install -r requirements.txt
-playwright install chromium
-pytest -q
 uvicorn app.main:app --reload
 ```
 
@@ -320,67 +248,25 @@ Open:
 http://127.0.0.1:8000/
 ```
 
----
-
-## 🔌 Main API
-
-### Discover
-
-```http
-POST /discover
-```
-
-```json
-{
-  "url": "https://example.com/article/123",
-  "template": {
-    "title": "",
-    "body": "",
-    "date": ""
-  }
-}
-```
-
-### Generic / custom crawl
-
-```http
-POST /crawl
-```
-
-```json
-{
-  "url": "https://example.com/article/123",
-  "structure": { "...": "..." },
-  "timeout_seconds": 240,
-  "headless": true
-}
-```
-
-The endpoint intentionally receives only the **URL + Structure** as the crawling contract.
+Make sure Playwright MCP is available in the configured transport.
 
 ---
 
-## 🧪 Engineering principles
+## Design principles
 
-**One runtime, many structures.** Avoid duplicate crawler code.
+**Browser truth.** DOM verification beats model confidence.
 
-**Structure is the contract.** Analysis decisions should survive into execution unchanged.
+**Field-specific investigation.** A date, article body, image and collection should not all be inspected the same way.
 
-**Playwright is the current crawler substrate.** No static crawler path is exposed in the crawl workflow.
+**Bounded agent loops.** Every LLM/browser phase has a hard round limit.
 
-**LLM is for understanding, not repetition.** Analysis can be agentic; crawling should be deterministic and inspectable.
+**Deterministic verification.** The LLM proposes; the browser proves.
 
-**Custom is an escape hatch.** Keep exceptional code isolated from the generic runtime.
+**Repair, not regeneration.** When something fails, inspect only the weak fields instead of restarting the whole analysis.
 
-**Every run leaves evidence.** Results and traces should be debuggable after the fact.
+**Reusable structure.** The final output is an `Extraction Structure` that can be executed by the generic Playwright runtime.
 
----
+**Artifacts are first-class.** Prompts, source HTML, round outputs and verification results are preserved for debugging and reproducibility.
+### Tool-loop safety
 
-## License / handoff
-
-The standalone crawler can be delivered independently together with one or more Extraction Structure JSON files. The Studio itself remains the analysis, structure-management, artifact-management, and custom-crawler workspace.
-
-
-## Single-page execution contract
-
-The Crawler workflow accepts exactly one URL and one Extraction Structure. It opens that URL once with Playwright, scrolls to the bottom to trigger lazy-loaded content, returns to the top, extracts the requested fields, and returns one JSON record. It does not follow links or paginate.
+Some OpenAI-compatible providers may ignore `tool_choice=none` on the final round and still return a tool call. The LLM client never executes a tool after the budget is exhausted; it performs one bounded no-tools synthesis request using the accumulated conversation instead.

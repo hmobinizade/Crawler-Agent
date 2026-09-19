@@ -8,15 +8,23 @@
       <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/codegen.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/adaptive.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/adaptive.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/artifacts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/codegen_agent.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/codegen_agent.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/extractor.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/generic_runtime.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/generic_runtime.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/llm.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/mcp_client.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/mcp_client.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/prompts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/prompts.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/generated.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/generated.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/generated.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/standalone/playwright_structure_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/standalone/playwright_structure_crawler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/app.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/app.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/discover.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.html" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/discover.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/frontend/static/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/style.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_v10_wiring.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v10_wiring.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_validate_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_validate_analysis.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -157,7 +165,7 @@
       <breakpoints>
         <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
           <url>file://$PROJECT_DIR$/app/main.py</url>
-          <line>330</line>
+          <line>376</line>
           <option name="timeStamp" value="6" />
         </line-breakpoint>
       </breakpoints>

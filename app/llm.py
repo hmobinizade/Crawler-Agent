@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -114,6 +115,8 @@ class OpenAICompatibleLLM:
         max_rounds: int = 8,
         max_tool_output_chars: int = 24000,
         max_repeated_tool_calls: int = 1,
+        round_delay_seconds: float = 0.0,
+        on_event: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         """Run a bounded OpenAI-compatible MCP tool loop.
 
@@ -130,6 +133,8 @@ class OpenAICompatibleLLM:
 
         async with httpx.AsyncClient(timeout=timeout) as client:
             for round_idx in range(max_rounds):
+                if on_event is not None:
+                    await on_event("round_start", {"round": round_idx + 1, "max_rounds": max_rounds})
                 force_final = round_idx >= max_rounds - 1
                 payload = {
                     "model": self.model,
@@ -164,8 +169,68 @@ class OpenAICompatibleLLM:
                 tool_calls = message.get("tool_calls") or []
 
                 if not tool_calls:
+                    if on_event is not None:
+                        await on_event("final_response", {"round": round_idx + 1})
                     content = message.get("content", "")
                     return self._json_loads_resilient(self._extract_json_text(content))
+
+                # Some OpenAI-compatible providers may ignore tool_choice="none"
+                # and still emit a tool call on the final round. Never execute a tool
+                # after the round budget is exhausted. Instead, reuse the full
+                # accumulated conversation and make one bounded no-tools synthesis call.
+                if force_final:
+                    if on_event is not None:
+                        await on_event(
+                            "tool_blocked",
+                            {"round": round_idx + 1, "reason": "tool_call_returned_on_forced_final"},
+                        )
+                    messages.append({
+                        "role": "assistant",
+                        "content": message.get("content") or "",
+                        "tool_calls": tool_calls,
+                    })
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "The tool budget is exhausted and browser tools are now disabled. "
+                            "Do NOT call tools. Return ONLY the requested final JSON using the evidence "
+                            "already present in this conversation. Preserve every requested field and use "
+                            "null/found=false when evidence is insufficient."
+                        ),
+                    })
+                    final_payload = {
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": 0,
+                        "max_tokens": settings.llm_max_tokens,
+                        "tool_choice": "none",
+                        "parallel_tool_calls": False,
+                        "response_format": {"type": "json_object"},
+                    }
+                    if settings.llm_seed is not None:
+                        final_payload["seed"] = settings.llm_seed
+                    try:
+                        fr = await client.post(
+                            f"{self.base}/chat/completions",
+                            headers=self.headers,
+                            json=final_payload,
+                        )
+                        fr.raise_for_status()
+                        fdata = fr.json()
+                        fmsg = fdata.get("choices", [{}])[0].get("message", {})
+                        if fmsg.get("tool_calls"):
+                            raise LLMError("Provider ignored tool_choice=none during forced final synthesis")
+                        content = fmsg.get("content", "")
+                        result = self._json_loads_resilient(self._extract_json_text(content))
+                        if on_event is not None:
+                            await on_event("final_response", {"round": round_idx + 1, "forced_no_tools": True})
+                        return result
+                    except httpx.HTTPStatusError as exc:
+                        raise LLMError(
+                            f"LLM HTTP {exc.response.status_code}: {exc.response.text[:500]}"
+                        ) from exc
+                    except httpx.HTTPError as exc:
+                        raise LLMError(f"LLM request failed: {exc}") from exc
 
                 assistant_message = {
                     "role": "assistant",
@@ -193,10 +258,14 @@ class OpenAICompatibleLLM:
                                 "error": "Repeated identical tool call blocked. Use the evidence already collected and finish the JSON result."
                             }
                         else:
+                            if on_event is not None:
+                                await on_event("tool_call", {"round": round_idx + 1, "name": name, "arguments": args})
                             try:
                                 result = await executor(name, args)
                             except Exception as exc:
                                 result = {"error": str(exc)}
+                            if on_event is not None:
+                                await on_event("tool_result", {"round": round_idx + 1, "name": name, "result_preview": str(result)[:800]})
 
                     if isinstance(result, str):
                         content = result
@@ -212,5 +281,8 @@ class OpenAICompatibleLLM:
                         "tool_call_id": tc.get("id", ""),
                         "content": content,
                     })
+
+                if round_delay_seconds > 0:
+                    await asyncio.sleep(round_delay_seconds)
 
         raise LLMError("LLM tool-calling loop exceeded the maximum number of rounds")

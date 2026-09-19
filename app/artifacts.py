@@ -40,25 +40,45 @@ class ArtifactStore:
         template: dict[str, Any],
         discovery: Any,
         source_html: str | None = None,
-        routing_prompt: str | None = None,
         discovery_prompt: str | None = None,
-        compact_evidence: str | None = None,
         analysis_response: dict[str, Any] | None = None,
+        stage_artifacts: dict[str, Any] | None = None,
     ) -> list[str]:
         directory = self.job_dir(url, job_id)
         files: list[str] = []
         files.append(self.write_json(directory / "01_template.json", template))
         files.append(self.write_json(directory / "02_extraction_structure.json", discovery.model_dump(mode="json") if hasattr(discovery, "model_dump") else discovery))
-        if routing_prompt:
-            files.append(self.write_text(directory / "03_routing_prompt.txt", routing_prompt))
         if discovery_prompt:
-            files.append(self.write_text(directory / "04_discovery_prompt.txt", discovery_prompt))
-        if compact_evidence:
-            files.append(self.write_text(directory / "05_compact_dom_evidence.txt", compact_evidence))
-        if analysis_response is not None:
-            files.append(self.write_json(directory / "06_analysis_response.json", analysis_response))
+            files.append(self.write_text(directory / "03_discovery_prompt.txt", discovery_prompt))
         if source_html:
-            files.append(self.write_text(directory / "06_source_page.html", source_html))
+            files.append(self.write_text(directory / "04_source_page.html", source_html))
+        if analysis_response is not None:
+            files.append(self.write_json(directory / "05_analysis_response.json", analysis_response))
+        if stage_artifacts:
+            stage_map = {
+                "round1_recon_prompt": ("06_round1_recon_prompt.txt", "text"),
+                "round1_recon": ("07_round1_recon.json", "json"),
+                "round2_field_prompt": ("08_round2_field_prompt.txt", "text"),
+                "round2_investigation": ("09_round2_investigation.json", "json"),
+                "round4_synthesis_prompt": ("10_round4_synthesis_prompt.txt", "text"),
+                "round4_synthesis": ("11_round4_synthesis.json", "json"),
+                "round5_repair_prompt": ("12_round5_repair_prompt.txt", "text"),
+                "round5_repair": ("13_round5_repair.json", "json"),
+                "verification": ("14_verification.json", "json"),
+            }
+            for key, (filename, kind) in stage_map.items():
+                value = stage_artifacts.get(key)
+                if value in (None, "", {}):
+                    continue
+                if kind == "text":
+                    files.append(self.write_text(directory / filename, str(value)))
+                else:
+                    files.append(self.write_json(directory / filename, value))
+            if stage_artifacts.get("source_html") and not source_html:
+                files.append(self.write_text(directory / "04_source_page.html", str(stage_artifacts["source_html"])))
+            final_structure = stage_artifacts.get("final_structure")
+            if final_structure:
+                files.append(self.write_json(directory / "15_final_structure.json", final_structure))
         manifest = {
             "job_id": job_id,
             "url": url,
@@ -109,7 +129,7 @@ class ArtifactStore:
         return files
 
     def read_source_html(self, url: str, job_id: str) -> str | None:
-        path = self.job_dir(url, job_id) / "06_source_page.html"
+        path = self.job_dir(url, job_id) / "04_source_page.html"
         if path.exists():
             return path.read_text(encoding="utf-8")
         return None

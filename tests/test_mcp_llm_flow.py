@@ -1,62 +1,66 @@
+import asyncio
+import json
 import sys
 import types
 
-# Minimal stubs so extractor can be imported in a test environment without MCP installed.
 mcp=types.ModuleType('mcp'); mcp.ClientSession=object; mcp.StdioServerParameters=object
 mcp_client=types.ModuleType('mcp.client')
 mcp_stdio=types.ModuleType('mcp.client.stdio'); mcp_stdio.stdio_client=lambda *a,**k: None
 mcp_http=types.ModuleType('mcp.client.streamable_http'); mcp_http.streamable_http_client=lambda *a,**k: None
-sys.modules.setdefault('mcp',mcp)
-sys.modules.setdefault('mcp.client',mcp_client)
-sys.modules.setdefault('mcp.client.stdio',mcp_stdio)
-sys.modules.setdefault('mcp.client.streamable_http',mcp_http)
+sys.modules.setdefault('mcp',mcp); sys.modules.setdefault('mcp.client',mcp_client)
+sys.modules.setdefault('mcp.client.stdio',mcp_stdio); sys.modules.setdefault('mcp.client.streamable_http',mcp_http)
 
-import asyncio
 from app.extractor import ExtractorAgent
 
+class Tool:
+    def __init__(self, name):
+        self.name=name; self.description=name; self.inputSchema={'type':'object','properties':{}}
 
 class FakeBrowser:
     def __init__(self): self.calls=[]
+    async def list_tools(self): return [Tool('browser_snapshot'), Tool('browser_evaluate'), Tool('browser_navigate')]
     async def call(self,name,args=None):
         self.calls.append((name,args or {}))
-        if name == 'browser_evaluate' and 'function' in (args or {}):
-            fn=args['function']
-            if 'scrollBy' in fn:
-                return {'height':10000,'url':'https://example.com/article/1','title':'Example'}
-            if 'JSON.stringify' in fn:
-                return '{"title":{"value":"Example title","selector":"h1.article-title","selector_unique":true}}'
-        raise AssertionError(f'unexpected call {name}')
-
+        fn=(args or {}).get('function','')
+        if name=='browser_evaluate' and 'scrollBy' in fn:
+            return {'height':12000,'url':'https://example.com/article/1','title':'Example'}
+        if name=='browser_evaluate' and 'outerHTML' in fn:
+            return '<html><body><main><h1 class="article-title">Example title</h1><time class="publish-date">2026-09-19</time></main></body></html>'
+        if name=='browser_evaluate' and 'document.title' in fn:
+            return {'title':'Example','url':'https://example.com/article/1'}
+        if name=='browser_evaluate':
+            return {'targeted':'evidence'}
+        if name=='browser_snapshot':
+            return {'snapshot':'main > article > h1, time'}
+        if name=='browser_navigate':
+            return {'url': args.get('url')}
+        raise AssertionError(name)
 
 class FakeLLM:
-    def __init__(self): self.called=False
-    async def chat_json(self, system, user):
-        self.called=True
-        assert 'COMPACT BROWSER EVIDENCE' in user
-        return {
-            'page_title':'Example',
-            'anti_bot_state':'NONE',
-            'proposed_json':{'title':'Example title'},
-            'fields':[{
-                'path':'title','value_type':'string','selector':'h1.article-title','selector_type':'css',
-                'found':True,'value':'Example title','evidence':'headline','confidence':0.99,
-            }]
-        }
+    def __init__(self): self.tool_calls=[]; self.chat_json_calls=[]
+    async def chat_with_tools(self, system, user, tools, executor, max_rounds, max_tool_output_chars, max_repeated_tool_calls, round_delay_seconds, on_event):
+        stage='recon' if 'reconnaissance' in system.lower() else 'field'
+        self.tool_calls.append((stage,max_rounds))
+        # Exercise one tool call through the real executor path.
+        await on_event('round_start', {'round':1,'max_rounds':max_rounds})
+        result = await executor('browser_evaluate', {'function':'() => ({targeted:true})'})
+        await on_event('tool_call', {'round':1,'name':'browser_evaluate','arguments':{}})
+        await on_event('tool_result', {'round':1,'name':'browser_evaluate','result_preview':json.dumps(result)})
+        await on_event('final_response', {'round':1})
+        if stage=='recon':
+            return {'page_type':'article','page_title':'Example','regions':[],'collection_regions':[],'metadata_sources':[],'special_behaviors':['none'],'anti_bot_state':'NONE','notes':[]}
+        return {'fields':[{'path':'title','found':True,'value':'Example title','selector':'h1.article-title','selector_type':'css','selector_candidates':['h1.article-title'],'confidence':0.99}], 'field_notes':[]}
+    async def chat_json(self, system, user, max_tokens=None):
+        self.chat_json_calls.append((system,user))
+        return {'page_title':'Example','anti_bot_state':'NONE','proposed_json':{'title':'Example title'},'fields':[{'path':'title','found':True,'value':'Example title','selector':'h1.article-title','selector_type':'css','selector_candidates':['h1.article-title'],'confidence':0.99}]}
 
-
-def test_browser_flow_does_not_use_llm_tool_loop(monkeypatch):
-    agent=ExtractorAgent()
-    browser=FakeBrowser(); llm=FakeLLM()
-    agent.browser=browser; agent.llm=llm
+def test_multi_round_analysis_uses_bounded_browser_tools():
+    agent=ExtractorAgent(); browser=FakeBrowser(); llm=FakeLLM(); agent.browser=browser; agent.llm=llm
     async def run():
-        result=await agent._inspect_with_mcp(
-            'https://example.com/article/1',
-            {'title':''},
-            [{'name':'title','path':'title','value_type':'string','required':True,'description':'','item_schema':{}}],
-        )
-        return result
+        return await agent._inspect_with_mcp('https://example.com/article/1', {'title':''}, [{'name':'title','path':'title','value_type':'string','required':True,'description':'','item_schema':{}}])
     result=asyncio.run(run())
-    assert llm.called
     assert result.proposed_json['title']=='Example title'
-    assert [name for name,_ in browser.calls] == ['browser_evaluate','browser_evaluate','browser_evaluate','browser_evaluate']
-    assert all('chat_with_tools' not in str(type(x)) for x in [agent.llm])
+    assert [x[0] for x in browser.calls].count('browser_evaluate') >= 3
+    assert llm.tool_calls[0][1] == 2
+    assert llm.tool_calls[1][1] == 3
+    assert len(llm.chat_json_calls) == 1

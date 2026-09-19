@@ -31,7 +31,7 @@ Requirements:
 - only repair the specific failing behavior described by validation errors
 
 Return ONLY JSON:
-{"filename":"crawler_repaired.py","code":"<complete corrected Python source>","runtime":"requests_bs4|playwright","notes":[],"required_packages":[],"contract_preserved":true}
+{"filename":"crawler_repaired.py","code":"<complete corrected Python source>","runtime":"playwright","notes":[],"required_packages":[],"contract_preserved":true}
 '''
 
 
@@ -207,7 +207,7 @@ class CrawlerCodeAgent:
         return {
             "code": repaired_code,
             "filename": str(response.get("filename") or "crawler_repaired.py"),
-            "runtime": response.get("runtime") or structure.get("method") or "requests_bs4",
+            "runtime": "playwright",
             "notes": response.get("notes") if isinstance(response.get("notes"), list) else [],
             "required_packages": response.get("required_packages") if isinstance(response.get("required_packages"), list) else [],
             "validation": final_validation,

@@ -47,7 +47,7 @@ def test_tool_loop_budget_is_bounded_in_source():
     from pathlib import Path
     src = Path(__file__).resolve().parents[1] / 'app' / 'extractor.py'
     text = src.read_text(encoding='utf-8')
-    assert 'chat_with_tools(' not in text
+    assert '_run_tool_agent' in text
     assert 'browser_evaluate' in text
     assert 'chat_json(' in text
     assert 'def _validate_analysis(' in text

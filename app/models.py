@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, Field, HttpUrl
 
-ExtractionMethod = Literal["local", "requests_bs4", "playwright"]
+ExtractionMethod = Literal["playwright"]
 
 class DiscoverRequest(BaseModel):
     url: HttpUrl

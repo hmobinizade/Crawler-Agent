@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -13,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .adaptive import AdaptiveAgent
+from .analysis_runs import AnalysisRunStore
 from .artifacts import artifact_store
 from .codegen import generate as deterministic_generate
 from .codegen_agent import CrawlerCodeAgent, CodeGenerationError
@@ -25,7 +28,7 @@ from .models import CodegenRequest, ConfirmRequest, CrawlRequest, DiscoverReques
 from .session_manager import BrowserSessionManager
 from .store import store
 
-app = FastAPI(title='Agentic Crawler Studio', version='2.1.0')
+app = FastAPI(title='Agentic Crawler Studio', version='2.5.0')
 app.mount('/static', StaticFiles(directory='frontend/static'), name='static')
 
 host_registry = HostAnalysisRegistry()
@@ -33,6 +36,8 @@ local_registry = LocalCrawlerRegistry()
 browser_sessions = BrowserSessionManager()
 code_agent = CrawlerCodeAgent()
 structure_registry = StructureRegistry()
+analysis_runs = AnalysisRunStore()
+_analysis_tasks: set[asyncio.Task] = set()
 
 
 @app.get('/')
@@ -153,40 +158,82 @@ async def shutdown_event():
     await browser_sessions.close_all()
 
 
-@app.post('/discover', response_model=Job)
-async def discover(req: DiscoverRequest):
+
+async def _execute_discovery(req: DiscoverRequest, run_id: str | None = None) -> Job:
+    async def progress(stage: str, message: str, meta: dict | None = None) -> None:
+        if run_id:
+            await analysis_runs.emit(run_id, stage, message, meta=meta or {})
+
+    if run_id:
+        await analysis_runs.update(run_id, status="RUNNING", stage="start", started_at=datetime.now(timezone.utc).isoformat())
+        await progress("start", "Analysis run started.")
+
     agent = AdaptiveAgent(registry=host_registry, local_registry=local_registry)
     try:
-        # Discovery is a complete workflow. For Playwright pages the Python side owns
-        # navigation/scroll/evidence; the LLM receives compact evidence only.
-        result = await agent.inspect(str(req.url), req.template, allow_playwright=True)
+        await progress("host_check", "Checking whether this host was already analyzed.")
+        result = await agent.inspect(str(req.url), req.template, allow_playwright=True, progress_cb=progress)
         job = Job(id=uuid4().hex[:12], discovery=result)
-
-        artifacts = {}
-        if getattr(agent, 'browser_agent', None) is not None:
-            artifacts = getattr(agent.browser_agent, 'last_artifacts', {}) or {}
-
+        artifacts = getattr(agent, 'browser_agent', None).last_artifacts if getattr(agent, 'browser_agent', None) is not None else {}
         artifact_store.save_discovery(
-            job_id=job.id,
-            url=result.url,
-            template=req.template,
-            discovery=result,
-            source_html=artifacts.get('source_html') or getattr(agent, 'last_static_html', None),
-            routing_prompt=getattr(agent, 'last_routing_prompt', None),
-            discovery_prompt=artifacts.get('discovery_prompt'),
-            compact_evidence=artifacts.get('compact_evidence'),
-            analysis_response=artifacts.get('analysis_response') or {'mode': result.source, 'status': result.status},
+            job_id=job.id, url=result.url, template=req.template, discovery=result,
+            source_html=artifacts.get('source_html'), discovery_prompt=artifacts.get('round4_synthesis_prompt') or artifacts.get('round2_field_prompt') or artifacts.get('round1_recon_prompt'),
+            analysis_response={
+                'round1_recon': artifacts.get('round1_recon'),
+                'round2_investigation': artifacts.get('round2_investigation'),
+                'round4_synthesis': artifacts.get('round4_synthesis'),
+                'round5_repair': artifacts.get('round5_repair'),
+                'verification': artifacts.get('verification'),
+            },
+            stage_artifacts=artifacts,
         )
         structure_registry.save(result.model_dump(mode='json'), structure_id=job.id)
         host_registry.mark(result.url, job.id, result.method)
         store.put(job)
+        if run_id:
+            await progress("finalize", f"Saved job {job.id} and extraction structure.")
+            await analysis_runs.update(run_id, status="DONE", stage="finalize", result=job.model_dump(mode='json'), job_id=job.id, finished_at=datetime.now(timezone.utc).isoformat())
         return job
+    except Exception as exc:
+        if run_id:
+            await progress("error", str(exc), {"error": True})
+            await analysis_runs.update(run_id, status="FAILED", stage="error", error=str(exc), finished_at=datetime.now(timezone.utc).isoformat())
+        raise
+
+
+async def _background_discovery(req: DiscoverRequest, run_id: str) -> None:
+    try:
+        await _execute_discovery(req, run_id=run_id)
+    except Exception:
+        pass
+
+@app.post('/discover', response_model=Job)
+async def discover(req: DiscoverRequest):
+    try:
+        return await _execute_discovery(req)
     except RuntimeError as exc:
         if str(exc).startswith('HOST_ALREADY_ANALYZED:'):
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.post('/analysis/start')
+async def analysis_start(req: DiscoverRequest):
+    run_id = uuid4().hex[:12]
+    await analysis_runs.create(run_id)
+    task = asyncio.create_task(_background_discovery(req, run_id))
+    _analysis_tasks.add(task)
+    task.add_done_callback(_analysis_tasks.discard)
+    return {'run_id': run_id, 'status': 'QUEUED'}
+
+
+@app.get('/analysis/{run_id}')
+async def analysis_status(run_id: str):
+    snapshot = await analysis_runs.snapshot(run_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail='Unknown analysis run')
+    return snapshot
 
 
 # Kept for backward compatibility with v10/v11 clients. New UI does not use this flow.
@@ -212,7 +259,6 @@ async def analyze_current(job_id: str):
         discovery=result,
         source_html=artifacts.get('source_html'),
         discovery_prompt=artifacts.get('discovery_prompt'),
-        compact_evidence=artifacts.get('compact_evidence'),
         analysis_response=artifacts.get('analysis_response'),
     )
     await browser_sessions.close(job.browser_session_id) if job.browser_session_id else None

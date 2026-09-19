@@ -9,8 +9,8 @@ from .settings import settings
 class PlaywrightMCP:
     """Thin runtime adapter around the Python MCP client.
 
-    MCP is imported lazily so static Requests/BS4 analysis can run even on a machine
-    where the browser extra has not been installed yet.
+    MCP is imported lazily so the application can still start when browser support
+    has not been installed; Playwright is the only page acquisition runtime.
     """
 
     def __init__(self) -> None:

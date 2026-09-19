@@ -13,12 +13,14 @@ load_dotenv()
 class Settings:
     llm_base_url: str = os.getenv("LLM_BASE_URL", "http://localhost:11434/v1")
     llm_api_key: str = os.getenv("LLM_API_KEY", "ollama")
-    llm_model: str = os.getenv("LLM_MODEL", "qwen3:14b")
-    llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
-    llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "3200"))
+    llm_model: str = os.getenv("LLM_MODEL", "deepseek-flash")
+    llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "180"))
+    llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "6000"))
     llm_seed: int | None = int(os.getenv("LLM_SEED")) if os.getenv("LLM_SEED") not in (None, "") else None
     llm_codegen_max_tokens: int = int(os.getenv("LLM_CODEGEN_MAX_TOKENS", "3200"))
     llm_repair_max_tokens: int = int(os.getenv("LLM_REPAIR_MAX_TOKENS", "5000"))
+    # 0 means no local truncation; useful with 1M-context DeepSeek models.
+    llm_source_max_chars: int = int(os.getenv("LLM_SOURCE_MAX_CHARS", "0"))
     llm_codegen_html_chars: int = int(os.getenv("LLM_CODEGEN_HTML_CHARS", "120000"))
 
     mcp_mode: str = os.getenv("MCP_MODE", "stdio")

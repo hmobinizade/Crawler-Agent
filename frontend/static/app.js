@@ -57,7 +57,7 @@ $('run').onclick = async () => {
     const template = JSON.parse($('template').value);
 
     addStep('Checking whether this host was already analyzed…');
-    addStep('Running adaptive routing/preflight…');
+    addStep('Opening page with Playwright MCP and analyzing rendered source…');
 
     const r = await fetch('/discover', {
       method: 'POST',

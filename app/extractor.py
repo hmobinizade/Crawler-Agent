@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 from .llm import OpenAICompatibleLLM
 from .mcp_client import PlaywrightMCP
 from .models import DiscoveryResult, FieldPlan
-from .prompts import DISCOVERY_SYSTEM
+from .prompts import DISCOVERY_SYSTEM, RECON_SYSTEM, FIELD_SYSTEM, SYNTHESIS_SYSTEM, REPAIR_SYSTEM
+from .settings import settings
 
 CHALLENGE_RE = re.compile(
     r"captcha|verify you are human|are you human|access denied|unusual traffic|bot detection|robot check|security check|cloudflare",
@@ -588,12 +589,21 @@ class ExtractorAgent:
         return payload
 
     @staticmethod
-    def _trim_evidence(value: Any, limit: int = 18000) -> str:
-        if isinstance(value, (dict, list)):
-            text=json.dumps(value, ensure_ascii=False)
-        else:
-            text=str(value or "")
-        return text[:limit]
+    def _coerce_source(payload: Any) -> str:
+        value = ExtractorAgent._coerce_mcp_payload(payload)
+        if isinstance(value, str):
+            return value
+        return json.dumps(value, ensure_ascii=False)
+
+    @staticmethod
+    def _limit_llm_source(source_html: str) -> str:
+        limit = settings.llm_source_max_chars
+        if limit and len(source_html) > limit:
+            raise RuntimeError(
+                f"Rendered HTML is {len(source_html):,} characters, above LLM_SOURCE_MAX_CHARS={limit:,}. "
+                "Increase LLM_SOURCE_MAX_CHARS for a long-context model or use a larger-context deployment."
+            )
+        return source_html
 
     @staticmethod
     def _merge_verification(fields: list[FieldPlan], verified: Any) -> tuple[list[FieldPlan], list[str], dict[str, Any]]:
@@ -640,153 +650,297 @@ class ExtractorAgent:
         missing=[f.path for f in fields if f.required and not f.found]
         return fields, missing, proposed
 
-    async def _inspect_with_mcp(self, url: str, template: dict[str, Any], contract: list[dict[str, Any]]) -> DiscoveryResult:
-        host=urlparse(url).netloc.lower().split(":",1)[0]
+    async def _emit(self, cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None, stage: str, message: str, meta: dict[str, Any] | None = None) -> None:
+        if cb is not None:
+            await cb(stage, message, meta or {})
 
-        # MCP is used only as a browser runtime here. The LLM never receives browser
-        # tools and therefore cannot get stuck in a tool-calling loop.
+    async def _get_browser_tool_defs(self) -> list[dict[str, Any]]:
+        tools = await self.browser.list_tools()
+        allowed = {"browser_snapshot", "browser_evaluate"}
+        selected = [t for t in tools if str(getattr(t, "name", "")) in allowed]
+        return [self._mcp_tool_def(t) for t in selected]
+
+    async def _run_tool_agent(
+        self,
+        *,
+        system: str,
+        user: str,
+        tools: list[dict[str, Any]],
+        progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None,
+        stage: str,
+        max_rounds: int,
+        max_output_chars: int = 8000,
+    ) -> dict[str, Any]:
+        async def executor(name: str, args: dict[str, Any]) -> Any:
+            if name not in {"browser_snapshot", "browser_evaluate"}:
+                raise RuntimeError(f"Tool not allowed in analysis phase: {name}")
+            return await self.browser.call(name, args)
+
+        async def on_event(kind: str, data: dict[str, Any]) -> None:
+            if kind == "round_start":
+                await self._emit(progress_cb, stage, f"LLM round {data['round']}/{data['max_rounds']}")
+            elif kind == "tool_call":
+                await self._emit(progress_cb, stage, f"Tool call: {data['name']}", {"round": data.get("round"), "arguments": data.get("arguments")})
+            elif kind == "tool_result":
+                await self._emit(progress_cb, stage, f"Tool result received: {data['name']}", {"round": data.get("round")})
+            elif kind == "final_response":
+                await self._emit(progress_cb, stage, "LLM returned the round result.")
+
+        return await self.llm.chat_with_tools(
+            system=system,
+            user=user,
+            tools=tools,
+            executor=executor,
+            max_rounds=max_rounds,
+            max_tool_output_chars=max_output_chars,
+            max_repeated_tool_calls=1,
+            round_delay_seconds=0.35,
+            on_event=on_event,
+        )
+
+    async def _inspect_with_mcp(
+        self,
+        url: str,
+        template: dict[str, Any],
+        contract: list[dict[str, Any]],
+        progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None,
+    ) -> DiscoveryResult:
+        host = urlparse(url).netloc.lower().split(":", 1)[0]
+        self.last_artifacts = {}
+
+        await self._emit(progress_cb, "browser_prepare", "Playwright MCP session is ready on the requested page.")
+
         scroll_js = r"""async () => {
           const sleep = ms => new Promise(r => setTimeout(r, ms));
-          let lastHeight = 0;
-          let stable = 0;
-          for (let i = 0; i < 36; i++) {
-            window.scrollBy({top: Math.max(300, Math.floor(window.innerHeight * 0.82)), behavior: 'auto'});
-            await sleep(250);
-            const h = Math.max(document.body?.scrollHeight || 0, document.documentElement.scrollHeight || 0);
+          let lastHeight = 0, stable = 0;
+          for (let i = 0; i < 28; i++) {
+            window.scrollBy({top: Math.max(360, Math.floor(window.innerHeight * 0.85)), behavior: 'auto'});
+            await sleep(220);
+            const h = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
             if (h === lastHeight) stable++; else stable = 0;
             lastHeight = h;
-            if (stable >= 4) break;
+            if (stable >= 3) break;
           }
           window.scrollTo({top: 0, behavior: 'auto'});
-          await sleep(250);
+          await sleep(300);
           return {height:lastHeight, url:location.href, title:document.title};
         }"""
+        await self._emit(progress_cb, "scroll", "Scrolling through the full rendered page to trigger lazy-loaded content.")
         try:
-            await self.browser.call("browser_evaluate", {"function": scroll_js})
+            scroll_result = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": scroll_js}))
         except Exception as exc:
             raise RuntimeError(f"Playwright MCP scroll failed: {exc}") from exc
+        await self._emit(progress_cb, "scroll", "Page scroll completed; browser returned to the top.", scroll_result if isinstance(scroll_result, dict) else {})
 
-        # Capture the complete post-scroll DOM for reproducibility/code generation artifacts.
-        try:
-            source_html_raw = await self.browser.call(
-                "browser_evaluate",
-                {"function": "() => document.documentElement.outerHTML"},
-            )
-            source_html = self._coerce_mcp_payload(source_html_raw)
-            if not isinstance(source_html, str):
-                source_html = json.dumps(source_html, ensure_ascii=False)
-        except Exception:
-            source_html = ""
-
-        # Compact DOM evidence: enough for the LLM to identify stable extraction rules,
-        # but not the full DOM/article text.
-        try:
-            compact = await self.browser.call("browser_evaluate", {"function": compact_browser_evidence()})
-        except Exception as exc:
-            raise RuntimeError(f"Playwright MCP evidence collection failed: {exc}") from exc
-        compact=self._coerce_mcp_payload(compact)
-        evidence=self._trim_evidence(compact, 18000)
-
-        user_prompt=f"""
-You are a senior web extraction planner. You are NOT operating browser tools in this step.
-The browser page has already been loaded and scrolled to the bottom and back to the top by Python.
-Use ONLY the supplied DOM evidence to build a robust extraction specification for the generated crawler.
-Do not invent selectors or values.
-
-URL:
-{url}
-
+        await self._emit(progress_cb, "recon", "Starting round 1: page reconnaissance.")
+        tool_defs = await self._get_browser_tool_defs()
+        if not tool_defs:
+            raise RuntimeError("Playwright MCP did not expose browser_snapshot/browser_evaluate tools")
+        recon_user = f"""
+CURRENT URL: {url}
 AUTHORITATIVE TEMPLATE:
-{json.dumps(template, ensure_ascii=False, separators=(',',':'))}
-
+{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
 LEAF CONTRACT:
-{json.dumps(contract, ensure_ascii=False, separators=(',',':'))}
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
 
-COMPACT BROWSER EVIDENCE:
-{evidence}
-
-IMPORTANT GENERATION RULES:
-- Every template leaf must appear.
-- Prefer deterministic sources: meta, JSON-LD, exact stable CSS selectors.
-- For body/full_text, select the actual article-content container, not the first paragraph.
-- For collection fields (comments/replies/items), identify a repeated item selector and child selectors.
-- Avoid generic selectors (div, article, main, p, .content, .title, etc.) unless scoped into a unique stable selector.
-- For fields with reliable semantic fallbacks such as title, image, date, author, view_count and news_code, provide a primary selector plus candidates where appropriate.
-- Keep value/evidence tiny. Do not reproduce the article body or all comments.
-- The generated crawler must be able to run independently of the LLM.
-
-Return ONLY the compact JSON object described by the system schema.
+Inspect the already-open page. Build a compact map of the page structure, metadata sources,
+article/content regions, repeated collections, JSON-LD, and any special behavior relevant to the template.
+Use the browser tools sparingly: one snapshot if useful and only targeted evaluate calls. Never navigate.
 """
+        recon = await self._run_tool_agent(
+            system=RECON_SYSTEM,
+            user=recon_user,
+            tools=tool_defs,
+            progress_cb=progress_cb,
+            stage="recon",
+            max_rounds=2,
+            max_output_chars=8000,
+        )
+        self.last_artifacts["round1_recon_prompt"] = recon_user
+        self.last_artifacts["round1_recon"] = recon
 
-        self.last_artifacts = {
-            "source_html": source_html,
-            "compact_evidence": evidence,
-            "discovery_prompt": user_prompt,
-        }
+        await self._emit(progress_cb, "investigation", "Starting round 2: field-by-field investigation.")
+        field_user = f"""
+CURRENT URL: {url}
+AUTHORITATIVE TEMPLATE:
+{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
+LEAF CONTRACT:
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
 
+RECONNAISSANCE RESULT:
+{json.dumps(recon, ensure_ascii=False, separators=(',', ':'))}
+
+Investigate every requested field on the CURRENT page. Use targeted browser_snapshot/browser_evaluate calls only
+when necessary. Prioritize exact DOM evidence, JSON-LD/meta evidence, collection cardinality, and robust selector candidates.
+Do not echo long content. Never navigate to another URL.
+"""
+        investigation = await self._run_tool_agent(
+            system=FIELD_SYSTEM,
+            user=field_user,
+            tools=tool_defs,
+            progress_cb=progress_cb,
+            stage="investigation",
+            max_rounds=3,
+            max_output_chars=9000,
+        )
+        self.last_artifacts["round2_field_prompt"] = field_user
+        self.last_artifacts["round2_investigation"] = investigation
+
+        await self._emit(progress_cb, "source_capture", "Capturing the full post-render HTML for artifacts and deterministic verification.")
         try:
-            analysis=await self.llm.chat_json(DISCOVERY_SYSTEM, user_prompt)
+            source_raw = await self.browser.call("browser_evaluate", {"function": "() => document.documentElement.outerHTML"})
+            source_html = self._coerce_source(source_raw)
         except Exception as exc:
-            raise RuntimeError(f"LLM discovery failed: {exc}") from exc
+            raise RuntimeError(f"Playwright MCP source capture failed: {exc}") from exc
+        if not source_html.strip():
+            raise RuntimeError("Playwright returned an empty rendered HTML source")
+        self._limit_llm_source(source_html) if settings.llm_source_max_chars else None
 
-        fields, missing, proposed=self._validate_analysis(analysis, contract)
-
-        # One deterministic browser verification pass. This is Python -> MCP, never
-        # LLM -> MCP. The verification uses the rules proposed by the LLM and captures
-        # full body/collections without sending those large values back to the model.
-        verify_specs=[f.model_dump() for f in fields]
         try:
-            raw_verified=await self.browser.call(
-                "browser_evaluate",
-                {"function": verify_and_extract_js(verify_specs)},
-            )
-            verified=self._coerce_mcp_payload(raw_verified)
-            fields, missing, proposed=self._merge_verification(fields, verified)
+            page_info = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": "() => ({title:document.title,url:location.href})"}))
         except Exception:
-            # Do not make an otherwise usable analysis fail only because browser-side
-            # verification could not be decoded. The generated crawler still carries
-            # the selector contract from the LLM response.
-            pass
+            page_info = {}
+        page_title = str(page_info.get("title") or "") if isinstance(page_info, dict) else ""
 
-        anti_bot_state=str(analysis.get("anti_bot_state") or "NONE")
-        status="INCOMPLETE" if missing else "READY"
-        if anti_bot_state in {"CHALLENGE","LOGIN","BLOCKED"}:
-            status="NEEDS_HUMAN"
+        await self._emit(progress_cb, "synthesis", "Starting round 4: critic + final structure synthesis.")
+        synthesis_user = f"""
+CURRENT URL: {url}
+AUTHORITATIVE TEMPLATE:
+{json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
+LEAF CONTRACT:
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
 
-        self.last_artifacts["analysis_response"] = analysis
+ROUND 1 — RECON:
+{json.dumps(recon, ensure_ascii=False, separators=(',', ':'))}
 
+ROUND 2 — FIELD INVESTIGATION:
+{json.dumps(investigation, ensure_ascii=False, separators=(',', ':'))}
+
+Create the final Extraction Structure. Reconcile evidence conservatively. Every requested field must appear exactly once.
+Do not copy large content. For each field provide the best primary selector and robust candidates. Collections must have
+item_selector/item_fields. Mark unsupported fields found=false/null.
+Return ONLY JSON.
+"""
+        synthesis = await self.llm.chat_json(SYNTHESIS_SYSTEM, synthesis_user, max_tokens=settings.llm_max_tokens)
+        self.last_artifacts["round4_synthesis_prompt"] = synthesis_user
+        self.last_artifacts["round4_synthesis"] = synthesis
+        fields, missing, proposed = self._validate_analysis(synthesis, contract)
+
+        await self._emit(progress_cb, "verification", "Verifying every proposed selector against the live browser DOM.")
+        verify_specs = [f.model_dump() for f in fields]
+        verified = {}
+        try:
+            raw_verified = await self.browser.call("browser_evaluate", {"function": verify_and_extract_js(verify_specs)})
+            verified = self._coerce_mcp_payload(raw_verified)
+            fields, missing, proposed = self._merge_verification(fields, verified)
+        except Exception as exc:
+            self.last_artifacts["verification_error"] = str(exc)
+            await self._emit(progress_cb, "verification", f"Verification warning: {exc}", level="warning")
+
+        # Optional repair round: only target fields that are still missing or have weak verification.
+        repair_targets = [f for f in fields if f.required and (not f.found or not f.selector or f.confidence < 0.78)]
+        if repair_targets:
+            await self._emit(progress_cb, "repair", f"Starting optional repair round for {len(repair_targets)} weak field(s).")
+            repair_contract = [f.model_dump() for f in repair_targets]
+            repair_user = f"""
+CURRENT URL: {url}
+REPAIR TARGETS:
+{json.dumps(repair_contract, ensure_ascii=False, separators=(',', ':'))}
+PREVIOUS SYNTHESIS:
+{json.dumps(synthesis, ensure_ascii=False, separators=(',', ':'))}
+VERIFICATION RESULT:
+{json.dumps(verified, ensure_ascii=False, separators=(',', ':'))}
+
+Inspect ONLY these weak fields on the current page. Prefer one or two targeted browser_evaluate calls.
+Return corrected field records only. Do not navigate.
+"""
+            repair = await self._run_tool_agent(
+                system=REPAIR_SYSTEM,
+                user=repair_user,
+                tools=tool_defs,
+                progress_cb=progress_cb,
+                stage="repair",
+                max_rounds=2,
+                max_output_chars=8000,
+            )
+            self.last_artifacts["round5_repair_prompt"] = repair_user
+            self.last_artifacts["round5_repair"] = repair
+            repair_fields = repair.get("fields") if isinstance(repair, dict) else None
+            if isinstance(repair_fields, list):
+                merged = {f.path: f for f in fields}
+                for item in repair_fields:
+                    if not isinstance(item, dict) or not item.get("path"):
+                        continue
+                    path = str(item["path"])
+                    old = merged.get(path)
+                    if old is None:
+                        continue
+                    candidate = FieldPlan.model_validate({**old.model_dump(), **item})
+                    merged[path] = candidate
+                fields = [merged[f.path] for f in fields]
+                verified = self._coerce_mcp_payload(await self.browser.call("browser_evaluate", {"function": verify_and_extract_js([f.model_dump() for f in fields])}))
+                fields, missing, proposed = self._merge_verification(fields, verified)
+        else:
+            await self._emit(progress_cb, "repair", "No repair round needed; verified structure is strong.")
+
+        anti_bot_state = str(synthesis.get("anti_bot_state") or recon.get("anti_bot_state") or "NONE")
+        status = "INCOMPLETE" if missing else "READY"
+        if anti_bot_state in {"CHALLENGE", "LOGIN", "BLOCKED"}:
+            status = "NEEDS_HUMAN"
+
+        self.last_artifacts.update({
+            "source_html": source_html,
+            "verification": verified,
+            "final_structure": {
+                "status": status,
+                "host": host,
+                "url": url,
+                "page_title": page_title,
+                "anti_bot_state": anti_bot_state,
+                "template": template,
+                "proposed_json": proposed,
+                "fields": [f.model_dump() for f in fields],
+                "missing_required": missing,
+                "method": "playwright",
+            },
+            "analysis_mode": "multi_round_playwright",
+        })
+
+        await self._emit(progress_cb, "finalize", f"Analysis complete: {status}. {len(fields) - len(missing)}/{len(fields)} fields verified.")
         return DiscoveryResult(
             status=status,
             host=host,
             url=url,
-            page_title=str(analysis.get("page_title") or (compact.get("page_title") if isinstance(compact,dict) else "") or ""),
+            page_title=page_title or str(synthesis.get("page_title") or recon.get("page_title") or ""),
             anti_bot_state=anti_bot_state,
             method="playwright",
-            method_reason="Python used Playwright MCP only for browser loading, controlled scrolling and deterministic verification; the LLM received compact DOM evidence and did not call browser tools.",
+            method_reason="Playwright-only multi-round analysis with bounded MCP tool calls, targeted field investigation, deterministic verification, and optional repair.",
             source="playwright",
             template=template,
             proposed_json=proposed,
             fields=fields,
             missing_required=missing,
-            evidence=[str(x)[:300] for x in (analysis.get("evidence") or []) if x],
+            evidence=[str(x)[:500] for x in (synthesis.get("evidence") or []) if x][:12],
             crawler_notes=[
-                "Generated crawler is deterministic and does not require an LLM at runtime.",
-                "Browser page was scrolled gradually to the end and returned to the top before analysis.",
-                *[str(x)[:500] for x in (analysis.get("crawler_notes") or []) if x],
-            ],
+                "Round 1: page reconnaissance.",
+                "Round 2: field-by-field targeted browser investigation.",
+                "Round 3: deterministic Playwright verification.",
+                "Round 4: critic/synthesis.",
+                "Round 5: repair only when weak fields remained.",
+            ] + [str(x)[:500] for x in (synthesis.get("crawler_notes") or []) if x],
             trace=[
-                "Playwright MCP was used as a browser runtime; no LLM tool-calling loop was used.",
-                "Page was scrolled in incremental viewport-sized steps to trigger lazy-loaded content.",
-                "Compact DOM evidence was sent once to the LLM.",
-                "A single deterministic browser-side verification pass was attempted after LLM planning.",
+                "Playwright MCP only; no static preflight and no routing LLM.",
+                "Tool calls were limited to browser_snapshot/browser_evaluate and bounded per phase.",
+                "Full rendered HTML was captured for artifacts but was not sent wholesale to the LLM.",
+                "The LLM saw targeted browser evidence through its tool calls, then deterministic verification checked the final selectors.",
             ],
         )
 
     async def open_page(self, url: str) -> None:
         await self.browser.call("browser_navigate", {"url": url})
 
-    async def inspect(self, url: str, template: dict[str, Any], navigate: bool = True) -> DiscoveryResult:
+    async def inspect(self, url: str, template: dict[str, Any], navigate: bool = True, progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None) -> DiscoveryResult:
         contract=flatten_template(template)
         if navigate:
             await self.open_page(url)
-        return await self._inspect_with_mcp(url, template, contract)
+        return await self._inspect_with_mcp(url, template, contract, progress_cb=progress_cb)
