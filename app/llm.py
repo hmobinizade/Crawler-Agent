@@ -81,6 +81,8 @@ class OpenAICompatibleLLM:
             "max_tokens": max_tokens or settings.llm_max_tokens,
             "response_format": {"type": "json_object"},
         }
+        if settings.llm_seed is not None:
+            payload["seed"] = settings.llm_seed
         timeout = httpx.Timeout(settings.llm_timeout_seconds, connect=10.0)
         async with httpx.AsyncClient(timeout=timeout) as client:
             try:

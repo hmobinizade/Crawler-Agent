@@ -16,6 +16,7 @@ class Settings:
     llm_model: str = os.getenv("LLM_MODEL", "qwen3:14b")
     llm_timeout_seconds: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "90"))
     llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "3200"))
+    llm_seed: int | None = int(os.getenv("LLM_SEED")) if os.getenv("LLM_SEED") not in (None, "") else None
     llm_codegen_max_tokens: int = int(os.getenv("LLM_CODEGEN_MAX_TOKENS", "3200"))
     llm_repair_max_tokens: int = int(os.getenv("LLM_REPAIR_MAX_TOKENS", "5000"))
     llm_codegen_html_chars: int = int(os.getenv("LLM_CODEGEN_HTML_CHARS", "120000"))

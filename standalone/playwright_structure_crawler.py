@@ -70,45 +70,6 @@ def candidate_values(spec: dict[str, Any]) -> list[str]:
     return values
 
 
-def same_site(url: str, root: str) -> bool:
-    return urlparse(url).netloc.lower() == urlparse(root).netloc.lower()
-
-
-def build_page_pattern(structure: dict[str, Any], root: str) -> re.Pattern[str] | None:
-    crawl = structure.get("crawl") if isinstance(structure.get("crawl"), dict) else {}
-    site = structure.get("site") if isinstance(structure.get("site"), dict) else {}
-    raw = crawl.get("page_pattern") or site.get("url_pattern") or structure.get("url_pattern")
-    if raw:
-        try:
-            return re.compile(str(raw))
-        except re.error:
-            return None
-
-    path = urlparse(root).path or "/"
-    parts = [p for p in path.split("/") if p]
-    if not parts:
-        return re.compile(r"^/$")
-    patterns: list[str] = []
-    for part in parts:
-        if re.fullmatch(r"\d+", part):
-            patterns.append(r"\d+")
-        elif len(part) >= 18 and re.fullmatch(r"[A-Za-z0-9_-]+", part):
-            patterns.append(r"[^/]+")
-        elif len(part) >= 7 and any(ch.isdigit() for ch in part) and re.fullmatch(r"[A-Za-z0-9_-]+", part):
-            patterns.append(r"[^/]+")
-        else:
-            patterns.append(re.escape(part))
-    return re.compile(r"^/" + "/".join(patterns) + r"/?$")
-
-
-def same_page_type(url: str, root: str, pattern: re.Pattern[str] | None) -> bool:
-    if not same_site(url, root):
-        return False
-    if pattern is None:
-        return True
-    return bool(pattern.match(urlparse(url).path or "/"))
-
-
 def clean_body_locator(locator: Any) -> str | None:
     script = r"""root => {
       const norm=s=>String(s??'').replace(/\u00a0/g,' ').replace(/\s+/g,' ').trim();
@@ -291,47 +252,131 @@ class ExtractionEngine:
             output.append(row if row else value)
         return output or None
 
-    def _collection(self, page: Any, spec: dict[str, Any]) -> Any:
-        root = self._field_root(page, spec) or page
-        selectors = candidate_values(spec)
-        item_selector = spec.get("item_selector")
-        if item_selector and item_selector not in selectors:
-            selectors.insert(0, item_selector)
+    def _special_value(self, page: Any, spec: dict[str, Any]) -> Any:
+        joined = " ".join([
+            str(spec.get("name", "")),
+            str(spec.get("path", "")),
+            str(spec.get("extraction_hint", "")),
+        ]).lower()
 
-        item_fields = spec.get("item_fields") or {}
-        for candidate in selectors:
-            jsonld_result = self._collection_from_jsonld_candidate(page, candidate, item_fields)
-            if jsonld_result not in (None, "", []):
-                return jsonld_result
-
-        nodes = None
-        selector_used = None
-        for selector in selectors:
+        if re.search(r"news[_\s-]*code|article[_\s-]*id|news[_\s-]*id", joined):
+            value = self.meta_value(page, "og:url")
+            if value:
+                match = re.search(r"/fa/news/(\d+)", str(value))
+                if match:
+                    return match.group(1)
             try:
-                locator = root.locator(selector)
-                if locator.count():
-                    nodes = locator
-                    selector_used = selector
-                    break
+                text = clean_text(page.locator("body").inner_text(timeout=3000)) or ""
             except Exception:
-                continue
-        if nodes is None:
-            return None
+                text = ""
+            match = re.search(r"کد خبر\s*[:：]?\s*([0-9۰-۹]+)", text)
+            return normalize_digits(match.group(1)) if match else None
 
-        rows: list[Any] = []
-        for index in range(min(nodes.count(), 1000)):
-            item = nodes.nth(index)
-            if item_fields:
-                row = {key: self._extract_item_field(item, field_spec) for key, field_spec in item_fields.items()}
-                if any(value not in (None, "", []) for value in row.values()):
-                    rows.append(row)
-            else:
+        if re.search(r"view[_\s-]*count|views?|بازدید", joined):
+            try:
+                text = clean_text(page.locator("body").inner_text(timeout=3000)) or ""
+            except Exception:
+                text = ""
+            match = re.search(r"([\d۰-۹,]+)\s*(?:بازدید|views?)", text, re.I)
+            return normalize_digits(match.group(1)) if match else None
+
+        if re.search(r"image|photo|thumbnail|picture|تصویر", joined):
+            for key in ("og:image", "twitter:image"):
+                value = self.meta_value(page, key)
+                if value:
+                    return value
+            raw = self.jsonld_raw(page, "image") or self.jsonld_raw(page, "thumbnailUrl")
+            if isinstance(raw, list) and raw:
+                raw = raw[0]
+            if isinstance(raw, dict):
+                raw = raw.get("url") or raw.get("@id")
+            if raw:
+                return clean_text(raw)
+            for selector in (
+                'img.lead_image.img-fluid.img-responsive-news',
+                '[itemprop="image"]',
+                'main img',
+                'article img',
+            ):
                 try:
-                    rows.append(clean_text(item.inner_text(timeout=2000)))
+                    node = page.locator(selector).first
+                    if node.count():
+                        value = clean_text(
+                            node.get_attribute("src", timeout=1500)
+                            or node.get_attribute("data-src", timeout=500)
+                            or node.get_attribute("data-lazy-src", timeout=500)
+                        )
+                        if value:
+                            return value
+                except Exception:
+                    pass
+
+        if re.search(r"^title$|headline|عنوان", joined):
+            for selector in ("h1.Htag", 'h1[itemprop="headline"]', "h1", ".article-title", ".news-title"):
+                try:
+                    value = clean_text(page.locator(selector).first.inner_text(timeout=1500))
+                    if value:
+                        return value
+                except Exception:
+                    pass
+            return self.jsonld_raw(page, "headline") or self.meta_value(page, "og:title")
+
+        if re.search(r"author|byline|نویسنده", joined):
+            for key in ("author", "article:author", "dc.creator"):
+                value = self.meta_value(page, key)
+                if value:
+                    return value
+            value = self.jsonld_raw(page, "author")
+            if isinstance(value, dict):
+                value = value.get("name") or value.get("@id")
+            if value:
+                return clean_text(value)
+            for selector in ('[rel="author"]', '[itemprop="author"]', ".author", ".byline", '[class*="author"]'):
+                try:
+                    value = clean_text(page.locator(selector).first.inner_text(timeout=1500))
+                    if value:
+                        return value
+                except Exception:
+                    pass
+
+        if re.search(r"date|published|publish|تاریخ", joined):
+            for key in ("article:published_time", "datePublished", "date", "dc.date", "pubdate"):
+                value = self.meta_value(page, key)
+                if value:
+                    return value
+                raw = self.jsonld_raw(page, key)
+                if raw:
+                    return clean_text(raw)
+
+        if re.search(r"body|full[_\s-]*text|article[_\s-]*text|content|متن", joined):
+            selectors = [
+                '[itemprop="articleBody"]',
+                '[data-article-body]',
+                '[class*="article-body"]',
+                '[class*="article-content"]',
+                '[class*="story-body"]',
+                '[class*="news-body"]',
+                'article',
+                'main',
+            ]
+            best = None
+            best_score = -1
+            for selector in selectors:
+                try:
+                    nodes = page.locator(selector)
+                    for index in range(min(nodes.count(), 20)):
+                        node = nodes.nth(index)
+                        text = clean_body_locator(node) or ""
+                        if len(text) < 120:
+                            continue
+                        score = node.locator("p").count() * 600 + min(len(text), 50000) / 6
+                        if score > best_score:
+                            best, best_score = text, score
                 except Exception:
                     continue
+            return best
 
-        return {"_values": rows, "_selector_used": selector_used} if rows else None
+        return None
 
     def _field(self, page: Any, spec: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
         path = spec.get("path", spec.get("name"))
@@ -423,6 +468,9 @@ class ExtractionEngine:
             except Exception as exc:
                 attempts.append({"candidate": candidate, "type": selector_type, "success": False, "error": str(exc)[:300]})
 
+        fallback = self._special_value(page, spec)
+        if fallback not in (None, "", []):
+            return fallback, {"path": path, "attempts": attempts, "selected": None, "fallback_used": True, "fallback": "semantic"}
         return None, {"path": path, "attempts": attempts, "selected": None, "fallback_used": bool(attempts)}
 
     def extract(self, page: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:

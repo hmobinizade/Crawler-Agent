@@ -1,7 +1,7 @@
 import { api, esc } from './studio.js?v=22';
 
 const treeEl = document.getElementById('artifactTree');
-// const previewEmpty = document.getElementById('previewEmpty');
+const previewEmpty = document.getElementById('previewEmpty');
 const previewContent = document.getElementById('previewContent');
 const previewTitle = document.getElementById('previewTitle');
 const previewMeta = document.getElementById('previewMeta');
@@ -19,10 +19,10 @@ function sizeLabel(size=0) {
 function clearPreview(message='Select a file to preview it here.') {
   previewTitle.textContent='Artifact preview';
   previewMeta.textContent=message;
-  // previewEmpty.textContent=message;
-  // previewEmpty.classList.remove('hidden');
-  // previewContent.classList.add('hidden');
-  // previewContent.textContent='';
+  previewEmpty.textContent=message;
+  previewEmpty.classList.remove('hidden');
+  previewContent.classList.add('hidden');
+  previewContent.textContent='';
   downloadCurrent.href='#';
   downloadCurrent.classList.add('disabled-link');
   downloadFolder.href='#';
@@ -124,7 +124,7 @@ function renderNode(node, level=0) {
 async function previewArtifact(node) {
   try {
     const p=await api('/artifacts/preview?path='+encodeURIComponent(node.path));
-    // previewEmpty.classList.add('hidden');
+    previewEmpty.classList.add('hidden');
     previewContent.classList.remove('hidden');
     previewTitle.textContent=node.name;
     previewMeta.textContent=`${node.path} · ${sizeLabel(node.size)}`;

@@ -98,207 +98,254 @@ def prepare_page(want_comments: bool = False) -> str:
 
 
 def verify_and_extract_js(specs: list[dict[str, Any]]) -> str:
-    specs_json = json.dumps(specs, ensure_ascii=False, separators=(',', ':'))
+    """Resolve model proposals against the live DOM and emit canonical selectors.
+
+    The LLM is allowed to propose selectors, but those strings are never trusted as
+    the final contract.  We execute the proposal, identify the actual DOM node(s),
+    then deterministically synthesize stable selectors and candidate selectors.
+    This makes repeated analyses converge on the same selector for the same element.
+    """
+    specs_json = json.dumps(specs, ensure_ascii=False, separators=(",", ":"))
     return f"""() => {{
       const specs = {specs_json};
-      const norm = s => String(s ?? '').replace(/\\u00a0/g,' ').replace(/\\s+/g,' ').trim();
-      const digits = s => String(s ?? '').replace(/[۰-۹]/g, d => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(d))).replace(/,/g,'');
+      const norm = s => String(s ?? '').replace(/\\u00a0/g, ' ').replace(/\\s+/g, ' ').trim();
       const visible = el => {{
         if (!el) return false;
-        const s=getComputedStyle(el), r=el.getBoundingClientRect();
-        return s.display!=='none' && s.visibility!=='hidden' && Number(s.opacity||1)>0 && r.width>0 && r.height>0;
+        const s = getComputedStyle(el), r = el.getBoundingClientRect();
+        return s.display !== 'none' && s.visibility !== 'hidden' && Number(s.opacity || 1) > 0 && r.width > 0 && r.height > 0;
       }};
-      const esc = s => CSS.escape(String(s));
-      const uniqueSelector = el => {{
-        if (!el || el.nodeType!==1) return null;
-        for (const attr of ['data-testid','data-qa','data-cy']) {{
-          const v=el.getAttribute(attr);
-          if (v) {{ const q=`${{el.tagName.toLowerCase()}}[${{attr}}=\\"${{String(v).replaceAll('\\"','\\\\\\"')}}\\"]`; try {{ if(document.querySelectorAll(q).length===1) return q; }} catch {{}} }}
+      const escapeCss = s => CSS.escape(String(s));
+      const stableClass = c => /^[A-Za-z_][A-Za-z0-9_-]{{1,60}}$/.test(c) && !/^(active|selected|show|open|hidden|visible|disabled|loading)$/i.test(c);
+      const inRoot = (el, root) => !root || root === document || root.contains(el);
+      const scopedCount = (root, selector) => {{
+        try {{
+          const q = root && root !== document ? root.querySelectorAll(selector) : document.querySelectorAll(selector);
+          return q.length;
+        }} catch {{ return -1; }}
+      }};
+      const makePathPart = node => {{
+        let part = node.tagName.toLowerCase();
+        const classes = [...node.classList].filter(stableClass).slice(0, 3);
+        for (const c of classes) part += '.' + escapeCss(c);
+        const parent = node.parentElement;
+        if (parent) {{
+          const same = [...parent.children].filter(x => x.tagName === node.tagName);
+          if (same.length > 1) part += `:nth-of-type(${{same.indexOf(node) + 1}})`;
         }}
-        if (el.id) {{ const q=`#${{esc(el.id)}}`; try {{ if(document.querySelectorAll(q).length===1) return q; }} catch {{}} }}
-        const parts=[]; let node=el;
-        for (let d=0; node && node.nodeType===1 && d<8; d++, node=node.parentElement) {{
-          let part=node.tagName.toLowerCase();
-          const cls=[...node.classList].filter(c=>/^[A-Za-z_][A-Za-z0-9_-]{{1,60}}$/.test(c) && !/^(active|selected|show|open|hidden)$/i.test(c)).slice(0,3);
-          for (const c of cls) part += '.'+esc(c);
-          const same = node.parentElement ? [...node.parentElement.children].filter(x=>x.tagName===node.tagName) : [];
-          if (same.length>1) part += `:nth-of-type(${{same.indexOf(node)+1}})`;
-          parts.unshift(part); const q=parts.join(' > ');
-          try {{ if(document.querySelectorAll(q).length===1) return q; }} catch {{}}
-        }}
-        return parts.join(' > ');
+        return part;
       }};
-      const badRe = /(^|[-_\\s])(ad|ads|advert|advertisement|banner|promo|sponsor|sponsored|related|recommend|recommended|comments?|comment-section|share|sharing|social|newsletter|subscribe|cookie|popup|modal|sidebar|breadcrumb|toolbar|navigation)([-_\\s]|$)/i;
-      const badTextRe = /(advertisement|تبلیغ|آگهی|مطالب مرتبط|اخبار مرتبط|دیدگاه|نظرات کاربران|اشتراک گذاری|عضویت|خبرهای مرتبط|پیشنهاد سردبیر|مطالب پیشنهادی)/i;
-      const isBad = el => {{
-        if (!el || el.nodeType!==1) return true;
-        if (['SCRIPT','STYLE','NOSCRIPT','IFRAME','SVG','FORM'].includes(el.tagName)) return true;
-        const meta=[el.id||'', typeof el.className==='string'?el.className:'', el.getAttribute('aria-label')||'', el.getAttribute('role')||'', el.getAttribute('data-ad')||''].join(' ');
-        if (badRe.test(meta)) return true;
-        const t=norm(el.innerText||'');
-        return t.length<350 && badTextRe.test(t);
-      }};
-      const cleanClone = root => {{
-        const clone=root.cloneNode(true);
-        for (const el of [...clone.querySelectorAll('*')]) if (isBad(el)) el.remove();
-        for (const el of [...clone.querySelectorAll('img, picture, video, figure')]) {{
-          const meta=[el.getAttribute('alt')||'', el.getAttribute('class')||'', el.getAttribute('id')||''].join(' ');
-          if (badRe.test(meta)) el.remove();
-        }}
-        return clone;
-      }};
-      const bodyFrom = root => {{
-        if (!root) return null;
-        const clone=cleanClone(root);
-        const blocks=[...clone.querySelectorAll('p,h2,h3,h4,blockquote,pre,li')]
-          .map(x=>norm(x.innerText||x.textContent||''))
-          .filter(t=>t.length>=20);
-        const out=[];
-        for (const t of blocks) {{
-          if (badTextRe.test(t) && t.length<500) continue;
-          if(!out.length || out[out.length-1]!==t) out.push(t);
-        }}
-        let text=out.length ? out.join('\\n\\n') : norm(clone.innerText||'');
-        text=text.replace(/(?:^|\\n)(?:تبلیغ|آگهی|مطالب مرتبط|اخبار مرتبط|دیدگاه|نظرات کاربران).*?(?=\\n|$)/g,'');
-        return norm(text) || null;
-      }};
-      const articleCandidates = () => {{
-        const sels=[
-          '[itemprop=\\"articleBody\\"]',
-          '[data-article-body]',
-          '[class*=\\"article-body\\"]', '[class*=\\"article-content\\"]',
-          '[class*=\\"story-body\\"]', '[class*=\\"story-content\\"]',
-          '[class*=\\"news-body\\"]', '[class*=\\"news-content\\"]',
-          '[class*=\\"post-content\\"]', '[class*=\\"post-body\\"]',
-          'article', '[role=\\"article\\"]', 'main'
-        ];
-        const seen=new Set(), arr=[];
-        for (const sel of sels) for (const el of document.querySelectorAll(sel)) {{
-          if(seen.has(el) || !visible(el)) continue;
-          seen.add(el);
-          const text=bodyFrom(el); if(!text || text.length<150) continue;
-          const ps=el.querySelectorAll('p').length;
-          const heading=el.querySelector('h1,h2,h3');
-          const headingText=norm(heading?.innerText||'');
-          const score=ps*600 + Math.min(text.length,50000)/6 + (headingText?500:0);
-          arr.push({{el,text,score}});
-        }}
-        return arr.sort((a,b)=>b.score-a.score);
-      }};
-      const meta = sel => {{ try {{ const el=document.querySelector(sel); return el ? norm(el.getAttribute('content')||'') : null; }} catch {{ return null; }} }};
-      const metas = () => [...document.querySelectorAll('meta[content]')].map(m=>({{key:(m.getAttribute('property')||m.getAttribute('name')||m.getAttribute('itemprop')||'').toLowerCase(),value:norm(m.content)}})).filter(x=>x.value);
-      const jsonldObjs=()=>{{const a=[]; for(const s of document.querySelectorAll('script[type=\\"application/ld+json\\"]')){{try{{const x=JSON.parse(s.textContent||'');Array.isArray(x)?a.push(...x):a.push(x)}}catch{{}}}} return a;}};
-      const jsonldFind = (keys) => {{
-        const wanted=keys.map(k=>k.toLowerCase());
-        const walk = obj => {{
-          if (!obj || typeof obj!=='object') return null;
-          for (const k of Object.keys(obj)) {{
-            const lk=k.toLowerCase();
-            if (wanted.includes(lk)) {{ const v=obj[k]; if(typeof v==='string' || typeof v==='number') return norm(v); if(v && typeof v==='object') return norm(v.name||v.url||v['@id']||''); }}
-          }}
-          for (const v of Object.values(obj)) {{ const got=walk(v); if(got) return got; }}
-          return null;
+      const relativeCandidates = (el, root) => {{
+        if (!el || el.nodeType !== 1) return [];
+        const out = [];
+        const push = q => {{
+          if (!q || out.includes(q)) return;
+          if (scopedCount(root, q) === 1) out.push(q);
         }};
-        for(const o of jsonldObjs()) {{ const got=walk(o); if(got) return got; }}
+        for (const attr of ['data-testid', 'data-qa', 'data-cy']) {{
+          const v = el.getAttribute(attr);
+          if (v) push(`${{el.tagName.toLowerCase()}}[${{attr}}="${{String(v).replaceAll('"', '\\\"')}}"]`);
+        }}
+        if (el.id) push(`#${{escapeCss(el.id)}}`);
+        const name = el.getAttribute('name');
+        if (name) push(`${{el.tagName.toLowerCase()}}[name="${{String(name).replaceAll('"', '\\\"')}}"]`);
+        const classes = [...el.classList].filter(stableClass).slice(0, 3);
+        if (classes.length) push(`${{el.tagName.toLowerCase()}}.${{classes.map(escapeCss).join('.')}}`);
+        const parts = [];
+        let node = el;
+        for (let depth = 0; node && depth < 8 && node.nodeType === 1; depth++, node = node.parentElement) {{
+          parts.unshift(makePathPart(node));
+          const q = parts.join(' > ');
+          push(q);
+          if (root && root !== document && node === root) break;
+        }}
+        return out.slice(0, 6);
+      }};
+      const bestSelector = (el, root) => {{
+        const candidates = relativeCandidates(el, root);
+        return {{selector: candidates[0] || null, selector_candidates: candidates, unique: !!candidates[0]}};
+      }};
+      const selectorRoot = scope => {{
+        if (!scope) return document;
+        try {{ const el = document.querySelector(scope); return el || document; }} catch {{ return document; }}
+      }};
+      const bodyLike = spec => /body|article body|full text|article text|متن|content/i.test(`${{spec.path || ''}} ${{spec.extraction_hint || ''}}`);
+      const cleanCloneText = root => {{
+        if (!root) return null;
+        const clone = root.cloneNode(true);
+        const bad = /(^|[-_\\s])(ad|ads|advert|advertisement|banner|promo|sponsor|sponsored|related|recommend|recommended|comments?|comment-section|share|sharing|social|newsletter|subscribe|cookie|popup|modal|sidebar|breadcrumb|toolbar|navigation)([-_\\s]|$)/i;
+        const badText = /(advertisement|تبلیغ|آگهی|مطالب مرتبط|اخبار مرتبط|دیدگاه|نظرات کاربران|اشتراک گذاری|عضویت|خبرهای مرتبط|پیشنهاد سردبیر|مطالب پیشنهادی)/i;
+        for (const el of [...clone.querySelectorAll('script,style,noscript,iframe,svg,form')]) el.remove();
+        for (const el of [...clone.querySelectorAll('*')]) {{
+          const meta = [el.id || '', typeof el.className === 'string' ? el.className : '', el.getAttribute('aria-label') || '', el.getAttribute('role') || '', el.getAttribute('data-ad') || ''].join(' ');
+          const t = norm(el.innerText || '');
+          const leaf = !el.children.length;
+          if (bad.test(meta) || (leaf && t.length < 350 && badText.test(t))) el.remove();
+        }}
+        const blocks = [...clone.querySelectorAll('p,h2,h3,h4,blockquote,pre,li')]
+          .map(x => norm(x.innerText || x.textContent || ''))
+          .filter(t => t.length >= 20 && !(t.length < 500 && badText.test(t)));
+        const out = [];
+        for (const t of blocks) if (!out.length || out[out.length - 1] !== t) out.push(t);
+        return norm(out.length ? out.join('\\n\\n') : clone.innerText || '');
+      }};
+      const jsonldObjects = () => {{
+        const out = [];
+        for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {{
+          try {{ const x = JSON.parse(script.textContent || ''); Array.isArray(x) ? out.push(...x) : out.push(x); }} catch {{}}
+        }}
+        return out.filter(x => x && typeof x === 'object');
+      }};
+      const jsonldGet = path => {{
+        for (const obj of jsonldObjects()) {{
+          let cur = obj;
+          for (const part of String(path).split('.')) cur = cur && typeof cur === 'object' ? cur[part] : undefined;
+          if (cur !== undefined && cur !== null && cur !== '') return cur;
+        }}
         return null;
       }};
-      const image = el => {{ if(!el) return null; if(el.tagName==='IMG') return el.currentSrc||el.src||el.getAttribute('data-src')||el.getAttribute('data-lazy-src')||null; const img=el.querySelector?.('img'); return img?(img.currentSrc||img.src||img.getAttribute('data-src')||img.getAttribute('data-lazy-src')||null):(el.getAttribute('content')||el.getAttribute('href')||null); }};
-      const primaryArticleImage = () => {{
-        const article=articleCandidates()[0]?.el;
-        const imgs=[...(article||document).querySelectorAll('img')].filter(i=>visible(i) && (i.naturalWidth||0)>=240 && (i.naturalHeight||0)>=120);
-        const good=imgs.filter(i=>!badRe.test([i.alt||'',i.className||'',i.id||'',i.closest('figure')?.className||''].join(' ')));
-        return image(good[0] || imgs[0] || null);
+      const metaGet = key => {{
+        const wanted = String(key).toLowerCase();
+        for (const el of document.querySelectorAll('meta[content]')) {{
+          const candidate = [el.getAttribute('property'), el.getAttribute('name'), el.getAttribute('itemprop')].filter(Boolean).join(' ').toLowerCase();
+          if (candidate === wanted) return norm(el.getAttribute('content') || '');
+        }}
+        return null;
       }};
-      const visibleText = () => norm(document.body?.innerText||'');
-      const firstMatch = regex => {{ const m=visibleText().match(regex); return m ? norm(m[1] || m[0]) : null; }};
-      const result={{}};
-      for (const spec of specs) {{
-        const path=String(spec.path||''), hint=(String(spec.extraction_hint||'')+' '+path).toLowerCase();
-        let value=null, chosen=spec.selector||null;
-        const low=path.toLowerCase();
-        // Deterministic extraction for common news fields.
-        if (/news[_\\s-]*code|article[_\\s-]*id|news[_\\s-]*id|code/.test(low)) {{
-          value=firstMatch(/(?:کد\\s*خبر|خبر\\s*کد|news\\s*code|article\\s*id)\\s*[:：]?\\s*([0-9۰-۹]+)/i);
-          if(value) {{ value=digits(value); chosen=null; }}
+      const resolveDomCandidate = (spec, candidate, root) => {{
+        const st = spec.selector_type || 'none';
+        if (!candidate) return null;
+        try {{
+          if (st === 'text') {{
+            const all = [...root.querySelectorAll('*')].filter(visible);
+            const exact = all.filter(el => norm(el.innerText || '') === norm(candidate)).sort((a,b) => (a.innerText || '').length - (b.innerText || '').length);
+            return exact[0] || null;
+          }}
+          if (st === 'xpath') {{
+            const context = root === document ? document : root;
+            const r = document.evaluate(candidate, context, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+            const nodes = [];
+            for (let i = 0; i < r.snapshotLength; i++) if (r.snapshotItem(i)?.nodeType === 1) nodes.push(r.snapshotItem(i));
+            return nodes.find(visible) || null;
+          }}
+          if (st === 'meta') {{
+            const direct = root.querySelector(candidate);
+            if (direct) return direct;
+            return [...root.querySelectorAll('meta[content]')].find(el => [el.getAttribute('property'), el.getAttribute('name'), el.getAttribute('itemprop')].filter(Boolean).join(' ').toLowerCase() === String(candidate).toLowerCase()) || null;
+          }}
+          if (st === 'css' || st === 'attribute') {{
+            const nodes = [...root.querySelectorAll(candidate)].filter(visible);
+            if (!nodes.length) return null;
+            if (nodes.length === 1) return nodes[0];
+            const wanted = norm(spec.value || '');
+            if (wanted) {{
+              const exact = nodes.find(n => norm(n.innerText || n.textContent || '') === wanted);
+              if (exact) return exact;
+              const partial = nodes.find(n => norm(n.innerText || n.textContent || '').includes(wanted.slice(0, Math.min(wanted.length, 120))));
+              if (partial) return partial;
+            }}
+            if (bodyLike(spec)) {{
+              return nodes.sort((a,b) => (b.querySelectorAll('p').length * 1000 + (b.innerText || '').length) - (a.querySelectorAll('p').length * 1000 + (a.innerText || '').length))[0];
+            }}
+            return nodes[0];
+          }}
+        }} catch {{}}
+        return null;
+      }};
+      const readNodeValue = (el, spec) => {{
+        if (!el) return null;
+        if (bodyLike(spec) && spec.selector_type === 'css') return cleanCloneText(el);
+        if (spec.attribute) return norm(el.getAttribute(spec.attribute) || '');
+        if (spec.selector_type === 'meta') return norm(el.getAttribute('content') || '');
+        if (spec.selector_type === 'attribute') return norm(el.getAttribute(spec.attribute || 'content') || '');
+        return norm(el.innerText || el.textContent || '');
+      }};
+      const relativeFieldSelector = (el, root) => bestSelector(el, root);
+      const itemFieldSelectors = (item, root, itemFields) => {{
+        const out = {{}};
+        for (const [key, fs] of Object.entries(itemFields || {{}})) {{
+          const q = fs && typeof fs === 'object' ? fs.selector : fs;
+          const attr = fs && typeof fs === 'object' ? fs.attribute : null;
+          if (!q || q === 'text' || q === '@text') {{ out[key] = q?.startsWith('@') ? q : 'text'; continue; }}
+          if (String(q).startsWith('@')) {{ out[key] = String(q); continue; }}
+          let child = null;
+          try {{ child = item.querySelector(String(q)); }} catch {{}}
+          if (child) out[key] = relativeFieldSelector(child, item).selector || String(q);
+          else out[key] = String(q);
         }}
-        if (/view[_\\s-]*count|views?|بازدید/.test(low) && !value) {{
-          value=firstMatch(/([0-9۰-۹,]+)\\s*(?:بازدید|views?)/i);
-          if(value) {{ value=digits(value); chosen=null; }}
-        }}
-        if (/^author$|author|نویسنده|byline/.test(low) && !value) {{
-          const mm=metas().find(x=>/^(author|article:author|dc.creator)$/.test(x.key));
-          value=mm?.value || jsonldFind(['author','creator']);
-          if(!value) {{
-            const els=[...document.querySelectorAll('[rel=\\"author\\"],[itemprop=\\"author\\"],.author,.byline,[class*=\\"author\\"]')].filter(visible);
-            value=norm(els[0]?.innerText||'') || null;
-            if(value) chosen=uniqueSelector(els[0]);
+        return out;
+      }};
+      const extractCollection = spec => {{
+        const root = selectorRoot(spec.scope_selector);
+        const selectors = [spec.item_selector, spec.selector, ...(spec.selector_candidates || [])].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+        for (const candidate of selectors) {{
+          let nodes = [];
+          try {{ nodes = [...root.querySelectorAll(candidate)].filter(visible); }} catch {{ nodes = []; }}
+          if (nodes.length >= 1) {{
+            const first = nodes[0];
+            const canonical = bestSelector(first, root);
+            const rows = nodes.slice(0,500).map(item => {{
+              const row = {{}};
+              const fields = spec.item_fields || {{}};
+              for (const [key, fs] of Object.entries(fields)) {{
+                const q = fs && typeof fs === 'object' ? fs.selector : fs;
+                const attr = fs && typeof fs === 'object' ? fs.attribute : null;
+                if (!q || q === 'text' || q === '@text') row[key] = norm(item.innerText || item.textContent || '');
+                else if (String(q).startsWith('@')) row[key] = norm(item.getAttribute(String(q).slice(1)) || '');
+                else {{ let child = null; try {{ child = item.querySelector(String(q)); }} catch {{}}; row[key] = child ? (attr ? norm(child.getAttribute(attr) || '') : norm(child.innerText || child.textContent || '')) : null; }}
+              }}
+              if (!Object.keys(row).length) row.text = norm(item.innerText || item.textContent || '');
+              return row;
+            }}).filter(row => Object.values(row).some(v => v !== null && v !== undefined && String(v).trim() !== ''));
+            if (rows.length) return {{value: rows, selector: canonical.selector, selector_candidates: canonical.selector_candidates, selector_unique: true, item_fields: itemFieldSelectors(first, first, spec.item_fields || {{}}), match_count: nodes.length}};
+          }}
+          // Hybrid JSON-LD candidate: script[...] path field.
+          const m = String(candidate).match(/^(.*?)\\s+path\\s+(.+)$/i);
+          if (m) {{
+            const path = m[2].trim();
+            const raw = jsonldGet(path);
+            if (Array.isArray(raw) && raw.length) return {{value: raw, selector: path, selector_candidates: [path], selector_unique: true, item_fields: spec.item_fields || {{}}, match_count: raw.length}};
           }}
         }}
-        if (/date|published|publish|تاریخ/.test(low) && !value) {{
-          const mm=metas().find(x=>/published_time|article:published_time|date|dc.date|pubdate/.test(x.key));
-          value=mm?.value || jsonldFind(['datePublished','dateCreated','dateModified']);
-          if(!value) value=firstMatch(/تاریخ\\s*انتشار\\s*[:：]?\\s*([^\\n|]+)/i);
-          if(value && !chosen) chosen=mm ? `meta[${{mm.key.startsWith('og:')?'property':'name'}}=\\"${{mm.key}}\\"]` : null;
+        return null;
+      }};
+      const result = {{}};
+      for (const spec of specs) {{
+        const path = String(spec.path || '');
+        let value = null, selector = null, selector_candidates = [], selector_unique = false, item_fields = spec.item_fields || {{}}, match_count = 0;
+        if (spec.value_type === 'array' || spec.item_selector || spec.item_fields) {{
+          const coll = extractCollection(spec);
+          if (coll) {{ value = coll.value; selector = coll.selector; selector_candidates = coll.selector_candidates || []; selector_unique = !!coll.selector_unique; match_count = coll.match_count || 0; item_fields = coll.item_fields || item_fields; }}
+        }} else if (spec.selector_type === 'jsonld') {{
+          for (const candidate of [spec.selector, ...(spec.selector_candidates || [])].filter(Boolean)) {{
+            const raw = jsonldGet(candidate);
+            if (raw !== null && raw !== undefined && raw !== '') {{ value = raw; selector = candidate; selector_candidates = [candidate, ...(spec.selector_candidates || [])].filter((v,i,a)=>v && a.indexOf(v)===i).slice(0,6); selector_unique = true; break; }}
+          }}
+        }} else {{
+          for (const candidate of [spec.selector, ...(spec.selector_candidates || [])].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i)) {{
+            const el = resolveDomCandidate(spec, candidate, root);
+            if (!el) continue;
+            value = readNodeValue(el, spec);
+            if (value === null || value === '') continue;
+            const canonical = bestSelector(el, root);
+            selector = canonical.selector || candidate;
+            selector_candidates = canonical.selector_candidates.length ? canonical.selector_candidates : [candidate];
+            selector_unique = !!canonical.selector;
+            match_count = scopedCount(root, candidate);
+            break;
+          }}
         }}
-        if (/image|photo|thumbnail|picture|تصویر/.test(low) && !value) {{
-          const mm=metas().find(x=>/og:image|twitter:image|image/.test(x.key));
-          value=mm?.value || jsonldFind(['image','thumbnailUrl']);
-          if(!value) value=primaryArticleImage();
-          if(value && mm) chosen=`meta[${{mm.key.startsWith('og:')?'property':'name'}}=\\"${{mm.key}}\\"]`;
+        // Semantic fallback runs only after ALL model-proposed selectors have failed.
+        if (value === null || value === '') {{
+          const low = path.toLowerCase();
+          let el = null;
+          if (/^title$|headline|عنوان/.test(low)) el = root.querySelector('h1');
+          else if (/author|byline|نویسنده/.test(low)) el = root.querySelector('[rel="author"],[itemprop="author"],.author,.byline,[class*="author"]');
+          else if (/date|published|publish|تاریخ/.test(low)) {{ const m=[...document.querySelectorAll('meta[content]')].find(x=>/published_time|date|pubdate/i.test([x.getAttribute('property'),x.getAttribute('name'),x.getAttribute('itemprop')].filter(Boolean).join(' '))); if(m) {{ value=norm(m.getAttribute('content')||''); selector=`meta[${{m.getAttribute('property')?'property':'name'}}="${{m.getAttribute('property')||m.getAttribute('name')}}"]`; selector_candidates=[selector]; selector_unique=true; }} }}
+          else if (/image|photo|thumbnail|picture|تصویر/.test(low)) {{ const m=document.querySelector('meta[property="og:image"],meta[name="twitter:image"]'); if(m) {{ value=norm(m.getAttribute('content')||''); selector=`${{m.getAttribute('property')?'meta[property="'+m.getAttribute('property')+'"]':'meta[name="'+m.getAttribute('name')+'"]'}}`; selector_candidates=[selector]; selector_unique=true; }} }}
+          else if (/body|content|متن|full text/.test(low)) el=[...document.querySelectorAll('[itemprop="articleBody"],[data-article-body],[class*="article-body"],[class*="article-content"],article,main')].sort((a,b)=>(b.querySelectorAll('p').length*1000+(b.innerText||'').length)-(a.querySelectorAll('p').length*1000+(a.innerText||'').length))[0];
+          if (el && value === null) {{ value = readNodeValue(el, {{...spec, selector_type:'css'}}); const canonical=bestSelector(el,root); selector=canonical.selector; selector_candidates=canonical.selector_candidates; selector_unique=!!canonical.selector; match_count=1; }}
         }}
-        if (/^title$|headline|title|عنوان/.test(low) && !value) {{
-          const h=document.querySelector('h1');
-          value=norm(h?.innerText||'') || jsonldFind(['headline','name']) || norm(document.title);
-          if(value && h) chosen=uniqueSelector(h);
-        }}
-        const collectionLike = spec.value_type === 'array' || /comments?|commentary|replies|دیدگاه|نظرات|کامنت|پاسخ/.test(low);
-        if (collectionLike && !value) {{
-          let itemSelector = spec.item_selector || null;
-          const itemFields = spec.item_fields || {{}};
-          try {{
-            let nodes = itemSelector ? [...document.querySelectorAll(itemSelector)].filter(visible) : [];
-            if (nodes.length < 2) {{
-              const candidates=[];
-              for (const ps of ['[class*="comment" i]','[id*="comment" i]','[class*="reply" i]','[id*="reply" i]','[data-comment]','[data-reply]']) {{
-                for (const parent of document.querySelectorAll(ps)) {{
-                  const kids=[...parent.querySelectorAll(':scope > li, :scope > article, :scope > div, :scope > section')].filter(visible).filter(x=>norm(x.innerText||'').length>=12);
-                  if(kids.length>=2) candidates.push({{kids,parent}});
-                }}
-              }}
-              candidates.sort((a,b)=>b.kids.length-a.kids.length);
-              if(candidates.length){{
-                nodes=candidates[0].kids;
-                const parentSel=uniqueSelector(candidates[0].parent);
-                itemSelector=parentSel ? `${{parentSel}} > ${{nodes[0].tagName.toLowerCase()}}` : null;
-              }}
-            }}
-            const rows=nodes.slice(0,500).map(node => {{
-              const row={{}};
-              for(const [key,fs] of Object.entries(itemFields)) {{
-                const q=fs && fs.selector ? fs.selector : (typeof fs==='string' ? fs : null);
-                const attr=fs && fs.attribute ? fs.attribute : null;
-                let el=null; try {{ el=q ? node.querySelector(q) : node; }} catch {{}}
-                row[key]=attr ? norm(el?.getAttribute(attr)||'') : norm(el?.innerText||el?.textContent||'');
-              }}
-              if(!Object.keys(row).length) row.text=norm(node.innerText||node.textContent||'');
-              return row;
-            }}).filter(x=>Object.values(x).some(v=>String(v||'').trim()));
-            if(rows.length){{ value = spec.value_type === 'array' ? rows : rows.map(x=>Object.values(x).filter(Boolean).join(' | ')).join('\\n\\n'); chosen=itemSelector; }}
-          }} catch {{}}
-        }}
-        const bodyLike=/body|article body|full text|article text|متن|content/.test(hint) || /(^|\\.)body$|(^|\\.)content$/i.test(path);
-        if (bodyLike && !value) {{
-          const c=articleCandidates()[0];
-          if(c) {{ value=c.text; chosen=uniqueSelector(c.el); }}
-        }}
-        if (!value && spec.selector_type==='meta' && chosen) value=meta(chosen);
-        if (!value && spec.selector_type==='jsonld' && chosen) value=jsonldFind([chosen]);
-        if (!value && chosen) {{ try {{
-          const els=[...document.querySelectorAll(chosen)].filter(visible);
-          if(els.length) {{ const el=els[0]; value=bodyLike?bodyFrom(el):(/image|photo|thumbnail|picture/.test(hint)?image(el):(spec.attribute?norm(el.getAttribute(spec.attribute)||''):norm(el.innerText||el.textContent||''))); }}
-        }} catch {{}} }}
-        if((value===null||value==='') && bodyLike) {{ const c=articleCandidates()[0]; if(c) {{ value=c.text; chosen=uniqueSelector(c.el); }} }}
-        result[path]={{value,selector:chosen,selector_unique:!!chosen && (()=>{{try{{return document.querySelectorAll(chosen).length===1}}catch{{return false}}}})()}};
+        result[path]={{value, selector, selector_candidates, selector_unique, scope_selector:scopeCanonical, item_selector, item_fields, match_count, canonicalized:true}};
       }}
       return result;
     }}"""
@@ -561,19 +608,32 @@ class ExtractorAgent:
         for field in fields:
             raw=by_path.get(field.path)
             if isinstance(raw, dict):
+                # Once browser verification returns a record, it becomes the source of truth.
+                # Do not keep an LLM-only value when the live page could not produce it.
                 value=raw.get("value")
                 selector=raw.get("selector")
                 unique=raw.get("selector_unique")
-                if value not in (None, "", []):
-                    field.value=value
-                    field.found=True
-                elif field.found and field.value not in (None, "", []):
-                    pass
-                else:
-                    field.value=None
-                    field.found=False
-                if selector and (not field.selector or unique is True):
+                field.value=value if value not in (None, "", []) else None
+                field.found=field.value not in (None, "", [])
+                if selector:
+                    # The verified/canonical selector is the executable contract.
+                    # It is derived from the actual DOM node, not copied blindly from the LLM.
                     field.selector=str(selector)
+                verified_candidates = raw.get("selector_candidates")
+                if isinstance(verified_candidates, list):
+                    field.selector_candidates=[str(x) for x in verified_candidates if str(x).strip()][:6]
+                verified_scope = raw.get("scope_selector")
+                if verified_scope:
+                    field.scope_selector=str(verified_scope)
+                verified_item_selector = raw.get("item_selector")
+                if verified_item_selector:
+                    field.item_selector=str(verified_item_selector)
+                verified_item_fields = raw.get("item_fields")
+                if isinstance(verified_item_fields, dict):
+                    field.item_fields=verified_item_fields
+                match_count = raw.get("match_count")
+                if isinstance(match_count, (int, float)):
+                    field.evidence=(field.evidence or "") + f" | verified_matches={int(match_count)}"
                 if unique is False and field.selector:
                     field.confidence=min(field.confidence, 0.65)
             set_path(proposed, field.path, field.value)

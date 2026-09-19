@@ -1,6 +1,6 @@
-# Adaptive Crawler Studio v21
+# Adaptive Crawler Studio v23
 
-> **Analyze once. Save the structure. Crawl many URLs. Generate custom code only when the site truly needs it.**
+> **Analyze once. Freeze a deterministic structure. Execute it with one reusable Playwright runtime.**
 
 Adaptive Crawler Studio is an agentic web-extraction workspace built around one core idea:
 
@@ -101,13 +101,10 @@ A simplified example:
     "mode": "generic"
   },
   "site": {
-    "host": "farsnews.ir",
-    "url_pattern": "/[^/]+/\\d+/.+"
+    "host": "farsnews.ir"
   },
   "crawl": {
-    "max_pages": 50,
-    "delay_seconds": 1.5,
-    "link_selector": "a.article-link"
+    "delay_seconds": 1.5
   },
   "fields": [
     {
@@ -131,16 +128,9 @@ A simplified example:
 }
 ```
 
-The runtime respects, in order:
+The runtime respects the analyzed contract exactly. The LLM may propose a selector, but the browser verification phase resolves the real element and rewrites the final Structure with deterministic, unique selectors and verified candidates. The runtime then executes that frozen Structure without asking an LLM to reinterpret it.
 
-1. `selector`
-2. `selector_candidates`
-3. `selector_type`
-4. `attribute`
-5. `scope_selector`
-6. `item_selector` / `item_fields` for collections
-
-It also records an `extraction_trace` so you can see which rule actually succeeded.
+Every extraction also records an `extraction_trace` showing the selector/candidate attempts and the rule that actually succeeded.
 
 ---
 
@@ -153,17 +143,15 @@ Every generic crawl uses:
 ```text
 Playwright
    ↓
-Navigate
+Navigate to one URL
    ↓
 Smooth scroll to page bottom
    ↓
-Wait for lazy-loaded content
+Return to top
    ↓
 Extract according to Structure
    ↓
-Follow allowed same-page-type links
-   ↓
-Write JSONL
+Return one JSON record
 ```
 
 Supported extraction modes include:
@@ -179,6 +167,8 @@ Supported extraction modes include:
 - `@href`, `@src`, `@attribute`, `text`
 - article-body extraction with ad/related-content cleanup
 - selector candidates and scopes
+- deterministic selector canonicalization after LLM analysis
+- selector match counts and extraction traces
 
 ---
 
@@ -361,7 +351,6 @@ POST /crawl
 {
   "url": "https://example.com/article/123",
   "structure": { "...": "..." },
-  "max_pages": 20,
   "timeout_seconds": 240,
   "headless": true
 }
