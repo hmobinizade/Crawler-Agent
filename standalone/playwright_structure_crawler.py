@@ -43,6 +43,40 @@ def get_path(obj: Any, path: str) -> Any:
     return cur
 
 
+def normalize_jsonld_rule(selector: Any) -> tuple[str | None, bool]:
+    if selector is None:
+        return None, False
+    raw = str(selector).strip()
+    if not raw:
+        return None, False
+    m = re.match(r"^jsonld\s*:\s*(.+)$", raw, re.I)
+    if m:
+        return m.group(1).strip(), True
+    m = re.search(r"content\s*\.\s*([A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*)", raw, re.I)
+    if m and any(token in raw.lower() for token in ("ld+json", "json.parse", "jsonld")):
+        return m.group(1).strip(), True
+    m = re.search(r"path\s*(?:[:=]|\b)\s*([A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*)", raw, re.I)
+    if m and any(token in raw.lower() for token in ("ld+json", "jsonld")):
+        return m.group(1).strip(), True
+    return raw, False
+
+
+def looks_like_jsonld_path(selector: Any, selector_type: str | None = None) -> bool:
+    path, marked = normalize_jsonld_rule(selector)
+    if marked:
+        return True
+    if selector_type != 'jsonld' or path is None:
+        return False
+    x = str(path).strip()
+    if not x or x.startswith(('#','.', '[', '/', ':')) or '>' in x or '(' in x or ')' in x:
+        return False
+    if re.match(r'^[A-Za-z][A-Za-z0-9_-]*\s*[.#:\[]', x):
+        return False
+    if x.lower() in {'html','head','body','main','article','section','div','span','p','a','img','h1','h2','h3','h4','ul','ol','li','time','nav','figure'}:
+        return False
+    return True
+
+
 def set_path(obj: dict[str, Any], path: str, value: Any) -> None:
     cur = obj
     parts = str(path).split(".")
@@ -64,9 +98,14 @@ def missing_required(data: dict[str, Any], fields: list[dict[str, Any]]) -> list
 
 def candidate_values(spec: dict[str, Any]) -> list[str]:
     values: list[str] = []
-    for value in [spec.get("selector"), *(spec.get("selector_candidates") or [])]:
+    for raw in [spec.get("selector"), *(spec.get("selector_candidates") or [])]:
+        normalized, marked = normalize_jsonld_rule(raw)
+        if marked:
+            value = f"jsonld:{normalized}" if normalized else ""
+        else:
+            value = normalized or (str(raw).strip() if raw is not None else "")
         if value and value not in values:
-            values.append(str(value))
+            values.append(value)
     return values
 
 
@@ -122,21 +161,40 @@ class ExtractionEngine:
 
     @staticmethod
     def jsonld_raw(page: Any, path: str) -> Any:
+        normalized, marked = normalize_jsonld_rule(path)
+        path = str(normalized or path or '').strip().strip('.')
+        if not path:
+            return None
+
+        def flatten(value: Any):
+            if isinstance(value, list):
+                for item in value:
+                    yield from flatten(item)
+            elif isinstance(value, dict):
+                yield value
+                for child in value.values():
+                    if isinstance(child, (dict, list)):
+                        yield from flatten(child)
+
+        def get(obj: Any, key_path: str) -> Any:
+            cur = obj
+            for part in key_path.split('.'):
+                if isinstance(cur, dict):
+                    cur = cur.get(part)
+                else:
+                    return None
+            return cur
+
         scripts = page.locator('script[type="application/ld+json"]')
         for index in range(scripts.count()):
             try:
                 payload = json.loads(scripts.nth(index).inner_text(timeout=3000))
             except Exception:
                 continue
-            objects = payload if isinstance(payload, list) else [payload]
-            for obj in objects:
-                if not isinstance(obj, dict):
-                    continue
-                cur: Any = obj
-                for part in str(path).split("."):
-                    cur = cur.get(part) if isinstance(cur, dict) else None
-                if cur not in (None, ""):
-                    return cur
+            for obj in flatten(payload):
+                raw = get(obj, path)
+                if raw not in (None, ''):
+                    return raw
         return None
 
     @staticmethod
@@ -147,7 +205,41 @@ class ExtractionEngine:
             return [ExtractionEngine.jsonld_value(item) for item in value]
         if isinstance(value, dict):
             return {key: ExtractionEngine.jsonld_value(item) for key, item in value.items()}
-        return clean_text(value)
+        if isinstance(value, str):
+            return clean_text(value)
+        return value
+
+    @staticmethod
+    def coerce_value(value: Any, value_type: str) -> Any:
+        if value in (None, ""):
+            return None
+        if value_type == "string":
+            return clean_text(value)
+        if value_type == "number":
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return value
+            raw = normalize_digits(value)
+            if raw is None:
+                return None
+            raw = re.sub(r"[^0-9.+-]", "", raw)
+            try:
+                return float(raw) if "." in raw else int(raw)
+            except ValueError:
+                return None
+        if value_type == "boolean":
+            if isinstance(value, bool):
+                return value
+            raw = str(value).strip().lower()
+            if raw in {"true", "1", "yes", "بله"}:
+                return True
+            if raw in {"false", "0", "no", "خیر"}:
+                return False
+            return None
+        if value_type == "array":
+            return value if isinstance(value, list) else [value]
+        if value_type == "object":
+            return value if isinstance(value, dict) else None
+        return value
 
     @staticmethod
     def meta_value(page: Any, key: str) -> Any:
@@ -387,23 +479,41 @@ class ExtractionEngine:
 
         if value_type == "array" or spec.get("item_selector") or spec.get("item_fields"):
             selectors = candidate_values(spec)
-            # JSON-LD arrays/objects are a first-class collection source.
-            if selector_type == "jsonld":
-                for candidate in selectors:
-                    raw = self.jsonld_raw(page, candidate)
-                    attempts.append({"candidate": candidate, "type": "jsonld", "success": raw not in (None, "")})
-                    if raw not in (None, ""):
-                        value = raw if isinstance(raw, list) else [raw]
-                        return self.jsonld_value(value), {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
+            # JSON-LD is always attempted first for collections.
+            primary = candidate_values({"selector": spec.get("selector")})
+            jsonld_selectors = [c for c in selectors if looks_like_jsonld_path(c, selector_type)]
+            for candidate in jsonld_selectors:
+                raw = self.jsonld_raw(page, candidate)
+                attempts.append({"candidate": candidate, "type": "jsonld", "success": raw not in (None, "")})
+                if raw not in (None, ""):
+                    values = raw if isinstance(raw, list) else [raw]
+                    item_fields = spec.get("item_fields") or {}
+                    if item_fields and all(isinstance(v, dict) for v in values):
+                        mapped = []
+                        for value in values:
+                            row = {}
+                            for key, fs in item_fields.items():
+                                query = fs.get("selector") if isinstance(fs, dict) else fs
+                                query = fs.get("path", query) if isinstance(fs, dict) else query
+                                if query in {"url", "@href"}:
+                                    row[key] = value.get("url") or value.get("@id")
+                                elif query in {"text", "@text", "title"}:
+                                    row[key] = value.get("title") or value.get("headline") or value.get("name")
+                                elif isinstance(query, str) and query.startswith("@"):
+                                    row[key] = value.get(query[1:])
+                                else:
+                                    row[key] = get_path(value, str(query))
+                            mapped.append(row)
+                        values = mapped
+                    return self.jsonld_value(values), {"path": path, "attempts": attempts, "selected": candidate, "selected_type": "jsonld", "fallback_used": False}
+
             item_selector = spec.get("item_selector")
             if item_selector and item_selector not in selectors:
                 selectors.insert(0, item_selector)
             root = self._field_root(page, spec) or page
             for candidate in selectors:
-                jsonld_value = self._collection_from_jsonld_candidate(page, candidate, spec.get("item_fields") or {})
-                attempts.append({"candidate": candidate, "type": "jsonld-path", "success": jsonld_value not in (None, "", [])})
-                if jsonld_value not in (None, "", []):
-                    return jsonld_value, {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
+                if looks_like_jsonld_path(candidate, selector_type):
+                    continue
                 try:
                     locator = root.locator(candidate)
                     count = locator.count()
@@ -423,18 +533,26 @@ class ExtractionEngine:
                         return rows, {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
                 except Exception as exc:
                     attempts.append({"candidate": candidate, "type": selector_type, "success": False, "error": str(exc)[:300]})
-            return None, {"path": path, "attempts": attempts, "selected": None, "fallback_used": bool(attempts)}
+            return None, {"path": path, "attempts": attempts, "selected": None, "fallback_used": False}
 
         root = self._field_root(page, spec) or page
         selectors = candidate_values(spec)
-        for candidate in selectors:
+        primary = candidate_values({"selector": spec.get("selector")})
+        jsonld_selectors = [c for c in selectors if looks_like_jsonld_path(c, selector_type)]
+        for candidate in jsonld_selectors:
             try:
-                if selector_type == "jsonld":
-                    raw = self.jsonld_raw(root, candidate)
-                    attempts.append({"candidate": candidate, "type": "jsonld", "success": raw not in (None, "")})
-                    if raw not in (None, ""):
-                        return self.jsonld_value(raw), {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
-                elif selector_type == "meta":
+                raw = self.jsonld_raw(page, candidate)
+                attempts.append({"candidate": candidate, "type": "jsonld", "success": raw not in (None, "")})
+                if raw not in (None, ""):
+                    return self.coerce_value(self.jsonld_value(raw), value_type), {"path": path, "attempts": attempts, "selected": candidate, "selected_type": "jsonld", "fallback_used": False}
+            except Exception as exc:
+                attempts.append({"candidate": candidate, "type": "jsonld", "success": False, "error": str(exc)[:300]})
+
+        for candidate in selectors:
+            if looks_like_jsonld_path(candidate, selector_type):
+                continue
+            try:
+                if selector_type == "meta":
                     if candidate.lstrip().startswith("meta["):
                         loc = root.locator(candidate).first
                         count = loc.count()
@@ -444,7 +562,7 @@ class ExtractionEngine:
                         count = 1 if value not in (None, "") else 0
                     attempts.append({"candidate": candidate, "type": "meta", "matches": count, "success": bool(value)})
                     if value:
-                        return value, {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
+                        return self.coerce_value(value, value_type), {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
                 elif selector_type == "text":
                     loc = self._text_locator(root, candidate)
                     success = bool(loc and loc.count())
@@ -452,26 +570,58 @@ class ExtractionEngine:
                     if success:
                         return clean_text(loc.inner_text(timeout=2000)), {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
                 else:
-                    loc = self._locator(root, selector_type, candidate).first
+                    loc = self._locator(root, selector_type, candidate)
                     count = loc.count()
                     attempts.append({"candidate": candidate, "type": selector_type, "matches": count, "success": count > 0})
                     if not count:
                         continue
+
+                    selected = loc.first
+                    if count > 1:
+                        # Never silently take the first DOM node. A short model sample may disambiguate
+                        # a duplicated selector, otherwise this candidate is rejected and the next
+                        # deterministic candidate is attempted.
+                        sample = clean_text(spec.get("value"))
+                        if sample:
+                            matched = None
+                            for index in range(min(count, 50)):
+                                candidate_node = loc.nth(index)
+                                try:
+                                    if spec.get("attribute"):
+                                        observed = clean_text(candidate_node.get_attribute(spec["attribute"], timeout=2000))
+                                    elif body_like and selector_type == "css":
+                                        observed = clean_body_locator(candidate_node)
+                                    else:
+                                        observed = clean_text(candidate_node.inner_text(timeout=2000))
+                                except Exception:
+                                    observed = None
+                                if observed and (observed == sample or sample in observed or observed in sample):
+                                    matched = candidate_node
+                                    break
+                            if matched is None:
+                                attempts.append({"candidate": candidate, "type": selector_type, "matches": count, "success": False, "reason": "non_unique"})
+                                continue
+                            selected = matched
+                        else:
+                            attempts.append({"candidate": candidate, "type": selector_type, "matches": count, "success": False, "reason": "non_unique"})
+                            continue
+
                     if spec.get("attribute"):
-                        value = clean_text(loc.get_attribute(spec["attribute"], timeout=2000))
+                        value = clean_text(selected.get_attribute(spec["attribute"], timeout=2000))
                     elif body_like and selector_type == "css":
-                        value = clean_body_locator(loc)
+                        value = clean_body_locator(selected)
                     else:
-                        value = clean_text(loc.inner_text(timeout=2000))
+                        value = clean_text(selected.inner_text(timeout=2000))
                     if value not in (None, ""):
-                        return value, {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": candidate != spec.get("selector")}
+                        return self.coerce_value(value, value_type), {"path": path, "attempts": attempts, "selected": candidate, "fallback_used": False}
             except Exception as exc:
                 attempts.append({"candidate": candidate, "type": selector_type, "success": False, "error": str(exc)[:300]})
 
-        fallback = self._special_value(page, spec)
-        if fallback not in (None, "", []):
-            return fallback, {"path": path, "attempts": attempts, "selected": None, "fallback_used": True, "fallback": "semantic"}
-        return None, {"path": path, "attempts": attempts, "selected": None, "fallback_used": bool(attempts)}
+        if bool(spec.get("allow_semantic_fallback", False)):
+            fallback = self._special_value(page, spec)
+            if fallback not in (None, "", []):
+                return fallback, {"path": path, "attempts": attempts, "selected": None, "fallback_used": True, "fallback": "semantic"}
+        return None, {"path": path, "attempts": attempts, "selected": None, "fallback_used": False}
 
     def extract(self, page: Any) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         data: dict[str, Any] = {}

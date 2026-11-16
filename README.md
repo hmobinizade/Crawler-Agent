@@ -1,45 +1,32 @@
-# Adaptive Crawler Studio v26
+# Agentic Crawler Studio v29
 
-## What changed
+## Empty-LLM-response recovery
 
-The analysis path now combines the strongest part of the old v10 design—letting the LLM inspect the current Playwright page directly—with strict deterministic verification and a 95% retry gate.
+The bounded Playwright-MCP agent now treats an empty provider `content` as a recoverable terminal condition. It performs **one** no-tools JSON-only recovery request using the evidence already collected. It does not restart browser investigation or add tool rounds.
 
-### Analysis flow
+Frontend logs show the recovery explicitly:
 
-```text
-URL + Template
-  -> Playwright navigation + human-speed scroll
-  -> bounded LLM browser investigation (max 4 rounds / 9 tool calls)
-  -> strict selector verification (no semantic fallback)
-  -> deterministic confidence score
-  -> if any required field < 95%: one targeted repair pass (max 2 rounds / 4 tool calls)
-  -> final Extraction Structure
-```
+- `LLM returned empty content; starting one no-tools recovery...`
+- `LLM returned empty content; recovered with one no-tools finalization.`
 
-### Anti-hallucination rules
+If the provider returns an empty response again, the run fails with an explicit provider error rather than entering another tool loop.
 
-- LLM `confidence` is not trusted as evidence.
-- A field is accepted only when the proposed selector/path is reproduced by the live browser.
-- Unverified values are discarded.
-- Weak required fields remain `INCOMPLETE` instead of being invented.
-- Selector candidates are alternative rules for the same verified value.
+## DeepSeek thinking/tool-call compatibility
 
-### Bounded MCP usage
+When DeepSeek thinking mode is used with browser tools, the assistant turn must be replayed with `content`, `reasoning_content`, and `tool_calls`. The runtime now preserves those fields on every tool turn and uses a tool-free terminal finalization when the tool budget ends. Empty `content` is therefore treated as recoverable instead of immediately failing.
 
-The analysis agent can use only `browser_snapshot`, `browser_evaluate`, and same-page `browser_click`. Navigation/reload/back/forward are blocked. The global tool budget is enforced by the LLM client.
-
-### Runtime
-
-The crawler side remains Playwright-only. The reusable generic runtime executes a URL against an Extraction Structure. Custom codegen is reserved for exceptional sites.
-
-### Configuration
+Configuration:
 
 ```env
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-flash
-LLM_DISCOVERY_MAX_ROUNDS=4
-LLM_DISCOVERY_MAX_TOOL_CALLS=9
-LLM_REPAIR_MAX_ROUNDS=2
-LLM_REPAIR_MAX_TOOL_CALLS=4
-LLM_CONFIDENCE_THRESHOLD=0.95
+LLM_THINKING_MODE=auto
+LLM_REASONING_EFFORT=high
+LLM_TERMINAL_MAX_TOKENS=8000
 ```
+
+`auto` enables thinking only for the official DeepSeek API host. Use `enabled` explicitly when a compatible OpenAI-style provider supports DeepSeek thinking mode.
+
+## Extraction priority and runtime guarantees
+
+The discovery/runtime path is JSON-LD-first. Before visible-DOM investigation, all `script[type="application/ld+json"]` blocks are parsed, including arrays and `@graph` objects. When JSON-LD contains the requested value, the structure uses `selector_type: "jsonld"` and an executable property path such as `headline` or `author.name`; explanatory strings inside selectors are normalized away.
+
+Visible CSS/XPath/meta rules are used only for fields that JSON-LD does not satisfy. Scalar DOM selectors are not allowed to silently select the first node when multiple nodes match; the runtime requires a unique match or a verified sample-based disambiguation. Semantic fallbacks are disabled by default and are not enabled from model output.

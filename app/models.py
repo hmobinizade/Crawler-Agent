@@ -47,6 +47,7 @@ class FieldPlan(BaseModel):
     item_selector: str | None = None
     item_fields: dict[str, Any] = Field(default_factory=dict)
     collection_count: int | None = None
+    allow_semantic_fallback: bool = False
 
 class DiscoveryResult(BaseModel):
     status: Literal["READY", "NEEDS_HUMAN", "INCOMPLETE", "FAILED"]

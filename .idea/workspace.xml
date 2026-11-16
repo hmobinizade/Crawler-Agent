@@ -4,20 +4,20 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="looping.">
+    <list default="true" id="2d7762a4-bf20-4b33-b722-1cce2f0f6a5e" name="Changes" comment="fix 26.">
+      <change afterPath="$PROJECT_DIR$/app/analysis_runs.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.env.example" beforeDir="false" afterPath="$PROJECT_DIR$/.env.example" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/adaptive.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/adaptive.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/artifacts.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/artifacts.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/extractor.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/extractor.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/llm.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/llm.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/models.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/app/settings.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/settings.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/discover.html" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.html" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/frontend/static/discover.js" beforeDir="false" afterPath="$PROJECT_DIR$/frontend/static/discover.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/standalone/playwright_structure_crawler.py" beforeDir="false" afterPath="$PROJECT_DIR$/standalone/playwright_structure_crawler.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_mcp_llm_flow.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_v10_wiring.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_v10_wiring.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_validate_analysis.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_validate_analysis.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -54,27 +54,29 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.codegen.executor&quot;: &quot;Run&quot;,
-    &quot;Python.crawler_7a299e7d17a1.executor&quot;: &quot;Run&quot;,
-    &quot;Python.crawler_c5f4995bc3ef.executor&quot;: &quot;Run&quot;,
-    &quot;Python.site_crawler.executor&quot;: &quot;Run&quot;,
-    &quot;Python.test_mcp.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;F:/work/rcdat/agantic/agentic_playwright_mcp/app&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;two.files.diff.last.used.file&quot;: &quot;F:/work/rcdat/agantic/agentic_playwright_mcp/generated/farsnews.ir1/structures/ee98a15decb3.json&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.codegen.executor": "Run",
+    "Python.crawler_7a299e7d17a1.executor": "Run",
+    "Python.crawler_c5f4995bc3ef.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.site_crawler.executor": "Run",
+    "Python.test_mcp.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "main",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "F:/work/rcdat/agantic/agentic_playwright_mcp/app",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "two.files.diff.last.used.file": "F:/work/rcdat/agantic/agentic_playwright_mcp/generated/farsnews.ir1/structures/ee98a15decb3.json",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="F:\work\rcdat\agantic\agentic_playwright_mcp\app" />
@@ -98,6 +100,8 @@
       <updated>1788945272340</updated>
       <workItem from="1788945274957" duration="14624000" />
       <workItem from="1789377844310" duration="66450000" />
+      <workItem from="1790249029589" duration="2597000" />
+      <workItem from="1793780708362" duration="5554000" />
     </task>
     <task id="LOCAL-00001" summary="initial.">
       <option name="closed" value="true" />
@@ -139,7 +143,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789837334132</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="fix 26.">
+      <option name="closed" value="true" />
+      <created>1789840432102</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1789840432102</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -160,7 +172,8 @@
     <MESSAGE value="initial." />
     <MESSAGE value="v21." />
     <MESSAGE value="looping." />
-    <option name="LAST_COMMIT_MESSAGE" value="looping." />
+    <MESSAGE value="fix 26." />
+    <option name="LAST_COMMIT_MESSAGE" value="fix 26." />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -174,6 +187,7 @@
     </breakpoint-manager>
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/agentic_playwright_mcp$main.coverage" NAME="main Coverage Results" MODIFIED="1794257006809" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/app" />
     <SUITE FILE_PATH="coverage/agentic_playwright_mcp$test_mcp.coverage" NAME="test_mcp Coverage Results" MODIFIED="1788946916261" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/tests" />
     <SUITE FILE_PATH="coverage/agentic_playwright_mcp$site_crawler.coverage" NAME="site_crawler Coverage Results" MODIFIED="1788948556069" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/generated/31ffa2270f65" />
     <SUITE FILE_PATH="coverage/agentic_playwright_mcp$crawler_c5f4995bc3ef.coverage" NAME="crawler_c5f4995bc3ef Coverage Results" MODIFIED="1788959060802" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/generated/www.tabnak.ir" />

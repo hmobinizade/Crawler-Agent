@@ -59,8 +59,8 @@ class AdaptiveAgent:
         if not allow_playwright:
             raise RuntimeError("Playwright is the only supported discovery path in v24")
         host = self._host(url)
-        if self.registry.has_host(url):
-            raise RuntimeError(f"HOST_ALREADY_ANALYZED: {host}")
+        # if self.registry.has_host(url):
+        #     raise RuntimeError(f"HOST_ALREADY_ANALYZED: {host}")
 
         from .extractor import ExtractorAgent
 

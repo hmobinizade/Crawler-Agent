@@ -62,6 +62,6 @@ def test_multi_round_analysis_uses_bounded_browser_tools():
     assert result.proposed_json['title']=='Example title'
     assert [x[0] for x in browser.calls].count('browser_evaluate') >= 3
     assert llm.tool_calls[0][0] == 'analysis'
-    assert llm.tool_calls[0][1] == 4
-    assert llm.tool_calls[0][2] == 9
+    assert llm.tool_calls[0][1] == 8
+    assert llm.tool_calls[0][2] == 14
     assert len(llm.chat_json_calls) == 0

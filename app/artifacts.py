@@ -62,6 +62,9 @@ class ArtifactStore:
                 "repair_response": ("09_repair_response.json", "json"),
                 "verification": ("10_verification.json", "json"),
                 "final_structure": ("11_final_structure.json", "json"),
+                "llm_trace": ("12_llm_trace.json", "json"),
+                "llm_trace_repair": ("13_llm_repair_trace.json", "json"),
+                "jsonld_inventory": ("14_jsonld_inventory.json", "json"),
             }
             for key, (filename, kind) in stage_map.items():
                 value = stage_artifacts.get(key)

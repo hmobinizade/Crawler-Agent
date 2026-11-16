@@ -14,39 +14,44 @@ from .settings import settings
 DIRECT_TOOL_SYSTEM = r"""
 You are a senior web-forensics and extraction engineer.
 You are analyzing the CURRENT page already open in the Playwright browser.
-The JSON template is the authoritative contract. Your job is to discover the exact executable
-extraction rules for every requested field, using the browser tools yourself.
+The JSON template is the authoritative contract. Your job is to discover exact executable extraction rules for every requested field.
 
-You MUST inspect the real page before deciding. Do not rely on generic website conventions.
-Do not invent selectors, values, authors, dates, comments, or collections.
+HIGHEST PRIORITY: JSON-LD FIRST
+Before investigating visible DOM selectors for any field, completely inspect and parse ALL
+script[type="application/ld+json"] blocks on the current page.
+- Inspect every JSON-LD script, including arrays and @graph objects.
+- Resolve nested paths such as author.name, image.url, publisher.name and mainEntity.url.
+- For each requested field, first determine whether JSON-LD contains the exact requested value.
+- Only after the JSON-LD pass is complete should you inspect meta tags and visible DOM for fields
+  absent, incomplete, or semantically different in JSON-LD.
+- When JSON-LD supplies the requested value, selector_type MUST be "jsonld" and selector MUST be
+  only the executable property path, e.g. "headline" or "author.name".
+- NEVER return explanatory selector strings such as
+  "script[type=application/ld+json] (content.headline via JSON.parse)".
+- JSON-LD selector candidates must likewise be executable property paths, never prose.
 
 ALLOWED BEHAVIOR
 - Use browser_snapshot and browser_evaluate to inspect the current page.
-- You may click ONLY same-page controls that clearly expand content such as comments, replies,
-  load more, show more, or disclosure buttons.
+- You may click ONLY same-page controls that clearly expand comments, replies, load more, show more, or disclosures.
 - Never navigate, reload, go back, go forward, or open another page.
-- Work with the current rendered DOM after lazy loading/interaction.
 
 WORK IN THIS ORDER
-1. Recon the page once. Identify article/main regions, metadata/JSON-LD, repeated collections,
-   related links, media, comments/replies, and any lazy-loaded areas relevant to the template.
-2. Investigate each requested field only as needed. Use targeted DOM queries rather than dumping the whole page.
-3. For every scalar field, return an exact primary extraction rule plus up to 6 alternative rules
-   that resolve to the SAME intended value.
-4. For body/full_text, identify the smallest stable container containing the COMPLETE article, not the first paragraph.
-   Exclude ads, related content, comments, share blocks, navigation, footer, newsletter, and cookie/popup content.
-5. For collections, identify the repeated item selector and item_fields. `@href`, `@src`, `@text`/`text` are valid direct item values.
-   Never return only the first item.
-6. Verify selectors with browser_evaluate before finalizing. Check count/cardinality and representative value.
-7. If evidence conflicts or a field is ambiguous, inspect again instead of guessing.
-8. Do not return large content. Values are only short samples.
+1. Complete the JSON-LD pass.
+2. Map every template field to an exact JSON-LD path whenever possible and verify its returned value.
+3. For fields not satisfied by JSON-LD, inspect meta tags, then targeted visible DOM.
+4. For every scalar field, return an exact primary extraction rule plus up to 6 executable alternatives
+   that resolve to the SAME value.
+5. For body/full_text, identify the smallest stable container containing the COMPLETE article and excluding
+   ads, related content, comments, sharing, navigation, footer, newsletter and cookie/popup content.
+6. For collections, return the repeated item selector plus relative item_fields. Preserve authoritative JSON-LD arrays/objects.
+7. Verify rules with browser_evaluate before finalizing; check cardinality and representative value.
+8. Never use a semantic fallback merely because an exact rule failed. Return found=false when unverified.
 
-ANTI-HALLUCINATION RULES
-- found=true ONLY if you personally verified the field on the current page.
-- confidence is NOT allowed to be used as evidence; evidence must come from the page.
-- If a field cannot be verified, return found=false and value=null.
-- Never create a selector just because it looks plausible. Execute/verify it first.
-- A generic selector (div, article, main, .content, .title, etc.) is invalid unless it is scoped and uniquely identifies the intended element.
+ANTI-HALLUCINATION
+- found=true ONLY after browser confirmation.
+- Never invent selectors or values from website conventions.
+- Generic selectors such as div/article/main/.content are invalid unless uniquely scoped and verified.
+- selector_candidates must all be executable rules, never explanations.
 
 RETURN ONLY JSON:
 {
@@ -523,7 +528,7 @@ def verify_exact_selectors_js(specs: list[dict[str, Any]]) -> str:
         for(let d=0;n&&d<8&&n.nodeType===1;d++,n=n.parentElement){{let part=n.tagName.toLowerCase();const cs=[...n.classList].filter(stableClass).slice(0,3);for(const c of cs)part+='.'+esc(c);const same=n.parentElement?[...n.parentElement.children].filter(x=>x.tagName===n.tagName):[];if(same.length>1)part+=`:nth-of-type(${{same.indexOf(n)+1}})`;parts.unshift(part);add(parts.join(' > '));}}
         return push.slice(0,6);
       }};
-      const jsonldObjects=()=>{{const out=[];for(const s of document.querySelectorAll('script[type="application/ld+json"]')){{try{{const x=JSON.parse(s.textContent||'');Array.isArray(x)?out.push(...x):out.push(x)}}catch{{}}}}return out.filter(x=>x&&typeof x==='object')}};
+      const jsonldObjects=()=>{{const out=[];const add=x=>{{if(Array.isArray(x)){{for(const item of x)add(item);return}}if(!x||typeof x!=='object')return;out.push(x);if(x['@graph'])add(x['@graph'])}};for(const s of document.querySelectorAll('script[type="application/ld+json"]')){{try{{add(JSON.parse(s.textContent||''))}}catch{{}}}}return out}};
       const jsonldGet=path=>{{for(const obj of jsonldObjects()){{let cur=obj;for(const p of String(path).split('.'))cur=(cur&&typeof cur==='object')?cur[p]:undefined;if(cur!==undefined&&cur!==null&&cur!=='')return cur}}return null}};
       const textValue=(root,text)=>{{if(!text)return null;const wanted=norm(text);const nodes=[...(root||document).querySelectorAll('*')].filter(visible).sort((a,b)=>(a.innerText||'').length-(b.innerText||'').length);const ex=nodes.find(e=>norm(e.innerText||'')===wanted);if(ex)return norm(ex.innerText||'');return null}};
       const readNode=(el,spec)=>{{if(!el)return null;if(spec.attribute)return norm(el.getAttribute(spec.attribute)||'');if(spec.selector_type==='meta')return norm(el.getAttribute('content')||'');if(/body|full text|article body|متن|content/i.test(`${{spec.path||''}} ${{spec.extraction_hint||''}}`)){{const clone=el.cloneNode(true);for(const x of [...clone.querySelectorAll('script,style,noscript,iframe,svg,form')])x.remove();return norm(clone.innerText||'')}}return norm(el.innerText||el.textContent||'')}};
@@ -541,10 +546,15 @@ def verify_exact_selectors_js(specs: list[dict[str, Any]]) -> str:
             let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}};
             if(!nodes.length)continue;
             const rows=nodes.slice(0,500).map(item=>{{const row={{}};for(const [k,fs] of Object.entries(item_fields))row[k]=itemValue(item,fs);if(!Object.keys(row).length)row.text=norm(item.innerText||item.textContent||'');return row}});
-            if(rows.some(r=>Object.values(r).some(v=>v!==null&&v!==''))){{value=rows;const cs=uniqueSelector(nodes[0],root);selector=cs[0]||String(candidate);selector_candidates=cs;selector_unique=nodes.length===1||!!cs[0];match_count=nodes.length;item_selector=selector;break}}
+            if(rows.some(r=>Object.values(r).some(v=>v!==null&&v!==''))){{value=rows;const cs=uniqueSelector(nodes[0],root);selector=String(candidate);selector_candidates=[String(candidate),...cs].filter((v,i,a)=>v&&a.indexOf(v)===i).slice(0,8);selector_unique=nodes.length===1||!!cs[0];match_count=nodes.length;item_selector=String(candidate);break}}
           }}
         }} else if(spec.selector_type==='jsonld'){{
-          for(const candidate of selectors){{const raw=jsonldGet(candidate);if(raw!==null&&raw!==undefined&&raw!==''){{value=raw;selector=String(candidate);selector_candidates=selectors.slice(0,6);selector_unique=true;match_count=1;break}}}}
+          const isDomSyntax = c => {{ const x=String(c||'').trim(); return !x || x.startsWith('#') || x.startsWith('.') || x.startsWith('[') || x.startsWith('/') || x.startsWith(':') || x.includes('>') || /^([A-Za-z][A-Za-z0-9_-]*)[.#:\\[]/.test(x) || ['html','head','body','main','article','section','div','span','p','a','img','h1','h2','h3','h4','ul','ol','li','time','nav','figure'].includes(x.toLowerCase()); }};
+          const jCandidates = selectors.filter(c => !isDomSyntax(c));
+          for(const candidate of jCandidates){{const raw=jsonldGet(candidate);if(raw!==null&&raw!==undefined&&raw!==''){{value=raw;selector=String(candidate);selector_candidates=selectors.slice(0,6);selector_unique=true;match_count=1;break}}}}
+          if(value===null){{
+            for(const candidate of selectors.filter(c=>isDomSyntax(c))){{let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}}if(!nodes.length)continue;const node=nodes[0];value=readNode(node,spec);const cs=uniqueSelector(node,root);selector=String(candidate);selector_candidates=[String(candidate),...cs].filter((v,i,a)=>v&&a.indexOf(v)===i).slice(0,8);selector_unique=nodes.length===1;match_count=nodes.length;break}}
+          }}
         }} else if(spec.selector_type==='meta' || spec.selector_type==='attribute'){{
           for(const candidate of selectors){{let node=null;try{{node=root.querySelector(String(candidate))}}catch{{}}if(!node && spec.selector_type==='meta'){{node=[...root.querySelectorAll('meta[content]')].find(e=>[e.getAttribute('property'),e.getAttribute('name'),e.getAttribute('itemprop')].filter(Boolean).join(' ').toLowerCase()===String(candidate).toLowerCase())}}if(!node)continue;value=readNode(node,spec);if(value){{const cs=uniqueSelector(node,root);selector=cs[0]||String(candidate);selector_candidates=cs.length?cs:[String(candidate)];selector_unique=true;match_count=1;break}}}}
         }} else if(spec.selector_type==='text'){{
@@ -552,9 +562,10 @@ def verify_exact_selectors_js(specs: list[dict[str, Any]]) -> str:
         }} else if(spec.selector_type==='xpath'){{
           for(const candidate of selectors){{try{{const r=document.evaluate(candidate,root,null,XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,null);if(r.snapshotLength){{const node=r.snapshotItem(0);if(visible(node)){{value=readNode(node,spec);selector=candidate;selector_candidates=selectors.slice(0,6);selector_unique=r.snapshotLength===1;match_count=r.snapshotLength;break}}}}}}catch{{}}}}
         }} else {{
-          for(const candidate of selectors){{let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}}if(!nodes.length)continue;const node=nodes.length===1?nodes[0]:nodes.find(n=>norm(spec.value||'') && norm(n.innerText||n.textContent||'').includes(norm(spec.value).slice(0,80)))||nodes[0];value=readNode(node,spec);const cs=uniqueSelector(node,root);selector=cs[0]||String(candidate);selector_candidates=cs.length?cs:[String(candidate)];selector_unique=nodes.length===1||!!cs[0];match_count=nodes.length;break}}
+          for(const candidate of selectors){{let nodes=[];try{{nodes=[...root.querySelectorAll(String(candidate))].filter(visible)}}catch{{nodes=[]}}if(!nodes.length)continue;const node=nodes.length===1?nodes[0]:nodes.find(n=>norm(spec.value||'') && norm(n.innerText||n.textContent||'').includes(norm(spec.value).slice(0,80)))||nodes[0];value=readNode(node,spec);const cs=uniqueSelector(node,root);selector=String(candidate);selector_candidates=[String(candidate),...cs].filter((v,i,a)=>v&&a.indexOf(v)===i).slice(0,8);selector_unique=nodes.length===1;match_count=nodes.length;break}}
         }}
-        out[spec.path]={{value,selector,selector_candidates,selector_unique,match_count,item_selector,item_fields,exact_verified:value!==null&&value!==''}};
+        const isCollection = spec.value_type==='array'||spec.item_selector||Object.keys(item_fields).length;
+        out[spec.path]={{value,selector,selector_candidates,selector_unique,match_count,item_selector,item_fields,exact_verified:value!==null&&value!==''&&(isCollection||selector_unique)}};
       }}
       return out;
     }}"""
@@ -581,15 +592,30 @@ class ExtractorAgent:
 
     @staticmethod
     def _tool_is_allowed(name: str) -> bool:
-        blocked = {
-            "browser_navigate",
-            "browser_navigate_back",
-            "browser_go_back",
-            "browser_go_forward",
-            "browser_reload",
-            "browser_close",
-        }
-        return name not in blocked
+        low = str(name or "").lower()
+        blocked_tokens = (
+            "navigate", "reload", "go_back", "back", "forward", "close",
+            "new_page", "new_tab", "tabs", "connect", "save_storage_state"
+        )
+        return bool(low) and not any(token in low for token in blocked_tokens)
+
+    @staticmethod
+    def _normalize_jsonld_rule(value: Any) -> tuple[str | None, bool]:
+        if value is None:
+            return None, False
+        raw = str(value).strip()
+        if not raw:
+            return None, False
+        m = re.match(r"^jsonld\s*:\s*(.+)$", raw, re.I)
+        if m:
+            return m.group(1).strip(), True
+        m = re.search(r"content\s*\.\s*([A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*)", raw, re.I)
+        if m and any(token in raw.lower() for token in ("ld+json", "json.parse", "jsonld")):
+            return m.group(1).strip(), True
+        m = re.search(r"path\s*(?:[:=]|\b)\s*([A-Za-z0-9_@-]+(?:\.[A-Za-z0-9_@-]+)*)", raw, re.I)
+        if m and any(token in raw.lower() for token in ("ld+json", "jsonld")):
+            return m.group(1).strip(), True
+        return raw, False
 
     @staticmethod
     def _validate_analysis(analysis: Any, contract: list[dict[str, Any]]) -> tuple[list[FieldPlan], list[str], dict[str, Any]]:
@@ -652,14 +678,25 @@ class ExtractorAgent:
             selector = item.get("selector")
             if selector is not None:
                 selector = str(selector).strip() or None
-            if selector and GENERIC_SELECTOR_RE.fullmatch(selector.strip()):
+            selector_type = item.get("selector_type") if item.get("selector_type") in {"css", "xpath", "meta", "jsonld", "attribute", "text", "none"} else "none"
+            normalized_selector, selector_was_jsonld = ExtractorAgent._normalize_jsonld_rule(selector)
+            if normalized_selector:
+                selector = normalized_selector
+            if selector_was_jsonld:
+                selector_type = "jsonld"
+            if selector and GENERIC_SELECTOR_RE.fullmatch(selector.strip()) and selector_type != "jsonld":
                 selector = None
                 found = False if value is None else found
 
             selector_candidates = item.get("selector_candidates")
             if not isinstance(selector_candidates, list):
                 selector_candidates = []
-            selector_candidates = [str(x).strip() for x in selector_candidates if str(x).strip()][:4]
+            normalized_candidates = []
+            for raw_candidate in selector_candidates:
+                candidate, _ = ExtractorAgent._normalize_jsonld_rule(raw_candidate)
+                if candidate:
+                    normalized_candidates.append(candidate)
+            selector_candidates = list(dict.fromkeys(normalized_candidates))[:6]
 
             item_fields = item.get("item_fields")
             if not isinstance(item_fields, dict):
@@ -672,7 +709,7 @@ class ExtractorAgent:
                 required=bool(spec.get("required", True)),
                 value_type=value_type if value_type in {"string", "number", "boolean", "array", "object", "null"} else "string",
                 selector=selector,
-                selector_type=item.get("selector_type") if item.get("selector_type") in {"css", "xpath", "meta", "jsonld", "attribute", "text", "none"} else "none",
+                selector_type=selector_type,
                 attribute=(str(item.get("attribute")) if item.get("attribute") else None),
                 selector_candidates=selector_candidates,
                 scope_selector=(str(item.get("scope_selector")) if item.get("scope_selector") else None),
@@ -684,6 +721,7 @@ class ExtractorAgent:
                 item_selector=(str(item.get("item_selector")) if item.get("item_selector") else None),
                 item_fields=item_fields,
                 collection_count=(int(item.get("collection_count")) if isinstance(item.get("collection_count"), (int, float)) else None),
+                allow_semantic_fallback=False,
             )
             fields.append(fp)
             set_path(proposed, path, value)
@@ -733,57 +771,94 @@ class ExtractorAgent:
 
     @staticmethod
     def _merge_verification(fields: list[FieldPlan], verified: Any) -> tuple[list[FieldPlan], list[str], dict[str, Any]]:
+        """Merge live verification without destroying the agent's proven extraction contract.
+
+        The LLM's primary selector is authoritative when the browser confirms that exact rule.
+        Canonical selectors discovered by the verifier are added as candidates instead of replacing
+        the agent's rule. This prevents a good semantic selector from being silently rewritten into
+        a fragile DOM path.
+        """
+        proposed: dict[str, Any] = {}
         if not isinstance(verified, dict):
-            proposed={}
-            missing=[f.path for f in fields if f.required and not f.found]
+            missing = [f.path for f in fields if f.required and not f.found]
             for f in fields:
                 set_path(proposed, f.path, f.value)
             return fields, missing, proposed
-        proposed={}
-        by_path=verified
+
         for field in fields:
-            raw=by_path.get(field.path)
-            if isinstance(raw, dict):
-                # Once browser verification returns a record, it becomes the source of truth.
-                # Do not keep an LLM-only value when the live page could not produce it.
-                value=raw.get("value")
-                selector=raw.get("selector")
-                unique=raw.get("selector_unique")
-                field.value=value if value not in (None, "", []) else None
-                field.found=field.value not in (None, "", [])
-                if selector:
-                    # The verified/canonical selector is the executable contract.
-                    # It is derived from the actual DOM node, not copied blindly from the LLM.
-                    field.selector=str(selector)
-                verified_candidates = raw.get("selector_candidates")
-                if isinstance(verified_candidates, list):
-                    field.selector_candidates=[str(x) for x in verified_candidates if str(x).strip()][:6]
-                verified_scope = raw.get("scope_selector")
-                if verified_scope:
-                    field.scope_selector=str(verified_scope)
-                verified_item_selector = raw.get("item_selector")
-                if verified_item_selector:
-                    field.item_selector=str(verified_item_selector)
-                verified_item_fields = raw.get("item_fields")
-                if isinstance(verified_item_fields, dict):
-                    field.item_fields=verified_item_fields
-                match_count = raw.get("match_count")
-                if isinstance(match_count, (int, float)):
-                    field.evidence=(field.evidence or "") + f" | verified_matches={int(match_count)}"
-                if unique is False and field.selector:
-                    field.confidence=min(field.confidence, 0.65)
+            raw = verified.get(field.path)
+            if not isinstance(raw, dict):
+                set_path(proposed, field.path, field.value)
+                continue
+
+            value = raw.get("value")
+            exact_ok = bool(raw.get("exact_verified", bool(value not in (None, "", []) and raw.get("selector")))) and value not in (None, "", [])
+            if exact_ok:
+                field.value = value
+                field.found = True
+
+                # The verifier's selector is the exact candidate/rule that actually executed.
+                # Canonical DOM selectors are treated as additional candidates rather than replacing it.
+                verified_selector = str(raw.get("selector") or "").strip()
+                original_selector = str(field.selector or "").strip()
+                if verified_selector:
+                    field.selector = verified_selector
+                candidates: list[str] = []
+                raw_candidates = raw.get("selector_candidates") if isinstance(raw.get("selector_candidates"), list) else []
+                for candidate in [verified_selector, *raw_candidates]:
+                    candidate = str(candidate or "").strip()
+                    if candidate and candidate not in candidates:
+                        candidates.append(candidate)
+                if not candidates and original_selector:
+                    candidates.append(original_selector)
+                field.selector_candidates = candidates[:8]
+
+                # Preserve original item selector/item fields when they are valid; enrich only missing parts.
+                if raw.get("item_selector") and not field.item_selector:
+                    field.item_selector = str(raw.get("item_selector"))
+                if isinstance(raw.get("item_fields"), dict) and not field.item_fields:
+                    field.item_fields = raw.get("item_fields") or {}
+                if raw.get("scope_selector") and not field.scope_selector:
+                    field.scope_selector = str(raw.get("scope_selector"))
+
+                count = raw.get("match_count")
+                if isinstance(count, (int, float)):
+                    field.evidence = (field.evidence or "") + f" | verified_matches={int(count)}"
+            else:
+                # Live page could not reproduce the proposed rule. Do not let model-only values survive.
+                field.value = None
+                field.found = False
+
             set_path(proposed, field.path, field.value)
-        missing=[f.path for f in fields if f.required and not f.found]
+
+        missing = [f.path for f in fields if f.required and not f.found]
         return fields, missing, proposed
 
-    async def _emit(self, cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None, stage: str, message: str, meta: dict[str, Any] | None = None) -> None:
+    async def _emit(self, cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None, stage: str, message: str, meta: dict[str, Any] | None = None, level: str | None = None) -> None:
         if cb is not None:
-            await cb(stage, message, meta or {})
+            payload = dict(meta or {})
+            if level:
+                payload["level"] = level
+            await cb(stage, message, payload)
 
     async def _get_browser_tool_defs(self) -> list[dict[str, Any]]:
+        """Expose MCP browser tools except tools that can change the browsing target/session."""
         tools = await self.browser.list_tools()
-        allowed = {"browser_snapshot", "browser_evaluate", "browser_click"}
-        selected = [t for t in tools if str(getattr(t, "name", "")) in allowed]
+        blocked_tokens = (
+            "navigate", "reload", "go_back", "back", "forward", "close",
+            "new_page", "new_tab", "tabs", "connect", "save_storage_state"
+        )
+        selected = []
+        for tool in tools:
+            name = str(getattr(tool, "name", ""))
+            if not name:
+                continue
+            low = name.lower()
+            if any(token in low for token in blocked_tokens):
+                continue
+            if not (low.startswith("browser_") or low.startswith("playwright_")):
+                continue
+            selected.append(tool)
         return [self._mcp_tool_def(t) for t in selected]
 
     async def _run_tool_agent(
@@ -810,8 +885,20 @@ class ExtractorAgent:
                 await self._emit(progress_cb, stage, f"Tool call: {data['name']}", {"round": data.get("round"), "arguments": data.get("arguments")})
             elif kind == "tool_result":
                 await self._emit(progress_cb, stage, f"Tool result received: {data['name']}", {"round": data.get("round")})
+            elif kind == "response_meta":
+                await self._emit(
+                    progress_cb,
+                    stage,
+                    f"LLM response: finish={data.get('finish_reason') or 'none'}, content={data.get('content_chars', 0)} chars, reasoning={data.get('reasoning_chars', 0)} chars, tools={data.get('tool_call_count', 0)}, tokens={data.get('total_tokens') or '?'}.",
+                    level="debug",
+                )
             elif kind == "final_response":
-                await self._emit(progress_cb, stage, "LLM returned the round result.")
+                if data.get("empty_recovery"):
+                    await self._emit(progress_cb, stage, "LLM returned empty content; recovered with one no-tools finalization.", level="warning")
+                else:
+                    await self._emit(progress_cb, stage, "LLM returned the round result.")
+            elif kind == "empty_response":
+                await self._emit(progress_cb, stage, "LLM returned empty content; starting one no-tools recovery (no additional browser investigation).", level="warning")
 
         return await self.llm.chat_with_tools(
             system=system,
@@ -832,61 +919,100 @@ class ExtractorAgent:
 
     @classmethod
     def _field_confidence(cls, field: FieldPlan, raw_model: dict[str, Any] | None, verified: dict[str, Any] | None) -> float:
-        """Deterministic confidence score. Model-provided confidence is only a small tie-breaker."""
+        """Score only browser-verifiable evidence; model confidence is a tiny tie-breaker."""
         raw_model = raw_model or {}
         verified = verified or {}
         value = verified.get("value")
         if value in (None, "", []):
             return 0.0
 
-        score = 0.35  # verified non-empty value exists
-        if verified.get("selector"):
-            score += 0.15
-        if verified.get("selector_unique"):
+        score = 0.0
+
+        # 40%: the exact extraction rule produced a real value in the live DOM.
+        exact_live = bool(verified.get("exact_verified")) or bool(verified.get("selector") and value not in (None, "", []))
+        if exact_live:
+            score += 0.40
+
+        # 20%: the proposed primary selector exists / executed.
+        if verified.get("selector") or field.selector:
             score += 0.20
 
-        # Shape/cardinality checks.
+        # 20%: cardinality is appropriate for the requested type.
+        count = verified.get("match_count")
         if field.value_type == "array":
             if isinstance(value, list) and value:
-                score += 0.15
+                score += 0.20
             if field.item_selector or field.item_fields:
                 score += 0.05
         elif field.value_type == "object":
             if isinstance(value, dict) and value:
-                score += 0.15
-        elif field.value_type == "number":
+                score += 0.20
+        else:
+            # Scalars should normally resolve to one visible/intended element, but meta/JSON-LD
+            # values may have count=1 by definition. Do not penalize a valid JSON-LD scalar.
+            if count in (None, 1) or (isinstance(count, int) and count == 1):
+                score += 0.20
+
+        # 10%: shape/value sanity checks.
+        if field.value_type == "number":
             if isinstance(value, (int, float)) or re.search(r"-?\d+(?:\.\d+)?", str(value)):
-                score += 0.15
+                score += 0.10
         elif field.value_type == "boolean":
             if isinstance(value, bool) or str(value).lower() in {"true", "false"}:
-                score += 0.15
-        else:
-            if str(value).strip():
-                score += 0.15
+                score += 0.10
+        elif isinstance(value, str) and value.strip():
+            score += 0.10
+        elif isinstance(value, (dict, list)) and value:
+            score += 0.10
 
-        # Agreement between model sample and live verified value.
+        # 5%: independent agreement with the short model sample, only as a tie-breaker.
         model_value = raw_model.get("value")
         if model_value not in (None, "", []):
+            a = cls._normalize_compare(model_value)
+            b = cls._normalize_compare(value)
             if isinstance(model_value, list) and isinstance(value, list):
-                if not model_value or not value:
-                    agreement = 0.0
-                else:
-                    left = {cls._normalize_compare(x) for x in model_value if x not in (None, "")}
-                    right = {cls._normalize_compare(x) for x in value if x not in (None, "")}
-                    agreement = 1.0 if left and left.issubset(right) else (0.7 if left & right else 0.0)
+                left = {cls._normalize_compare(x) for x in model_value if x not in (None, "")}
+                right = {cls._normalize_compare(x) for x in value if x not in (None, "")}
+                agreement = 1.0 if left and left.issubset(right) else (0.6 if left & right else 0.0)
             else:
-                a = cls._normalize_compare(model_value)
-                b = cls._normalize_compare(value)
                 agreement = 1.0 if a and b and (a == b or a in b or b in a) else 0.0
-            score += 0.10 * agreement
+            score += 0.05 * agreement
 
-        # The model confidence is only a 5% tie-breaker; it can never create confidence by itself.
+        # 5%: model confidence is never enough to make an unverified field pass.
         score += 0.05 * max(0.0, min(float(raw_model.get("confidence", 0.0) or 0.0), 1.0))
         return max(0.0, min(score, 1.0))
 
     @staticmethod
     def _weak_fields(fields: list[FieldPlan], threshold: float) -> list[FieldPlan]:
         return [f for f in fields if f.required and (not f.found or f.confidence < threshold or not f.selector)]
+
+    @staticmethod
+    def jsonld_inventory_js() -> str:
+        return r'''() => {
+          const seen = new WeakSet();
+          const walk = (value, path, out, depth=0) => {
+            if (depth > 20 || value === null || value === undefined) return;
+            if (Array.isArray(value)) {
+              value.forEach((item, i) => walk(item, `${path}[${i}]`, out, depth+1));
+              return;
+            }
+            if (typeof value !== 'object' || seen.has(value)) return;
+            seen.add(value);
+            out.push({path: path || '$', value});
+            for (const [key, child] of Object.entries(value)) {
+              if (key === '@graph' || (child && typeof child === 'object')) {
+                walk(child, path ? `${path}.${key}` : key, out, depth+1);
+              }
+            }
+          };
+          const blocks=[]; const paths=[];
+          for (const [index, script] of [...document.querySelectorAll('script[type="application/ld+json"]')].entries()) {
+            const raw=script.textContent||'';
+            try { const parsed=JSON.parse(raw); blocks.push({index, raw_chars:raw.length, parsed}); walk(parsed, `$[${index}]`, paths); }
+            catch (e) { blocks.push({index, raw_chars:raw.length, parse_error:String(e)}); }
+          }
+          return JSON.stringify({count:blocks.length, blocks, paths});
+        }'''
 
     async def _inspect_with_mcp(
         self,
@@ -919,6 +1045,16 @@ class ExtractorAgent:
             raise RuntimeError("Playwright returned an empty rendered HTML source")
         self.last_artifacts["source_html"] = source_html
 
+        try:
+            raw_jsonld = await self.browser.call("browser_evaluate", {"function": self.jsonld_inventory_js()})
+            jsonld_inventory = self._coerce_mcp_payload(raw_jsonld)
+        except Exception as exc:
+            jsonld_inventory = {"count": 0, "blocks": [], "paths": [], "error": str(exc)}
+            await self._emit(progress_cb, "jsonld", f"JSON-LD preflight warning: {exc}", level="warning")
+        self.last_artifacts["jsonld_inventory"] = jsonld_inventory
+        if isinstance(jsonld_inventory, dict):
+            await self._emit(progress_cb, "jsonld", f"JSON-LD preflight complete: {int(jsonld_inventory.get('count') or 0)} script block(s) parsed; inventory is now the first extraction source.")
+
         tool_defs = await self._get_browser_tool_defs()
         if not tool_defs:
             raise RuntimeError("Playwright MCP did not expose browser_snapshot/browser_evaluate/browser_click tools")
@@ -936,15 +1072,24 @@ REQUIRED LEAF CONTRACT:
 You have a real Playwright browser for the CURRENT page. Investigate it yourself with the available tools.
 Do NOT navigate away. The purpose is to build the most accurate Extraction Structure possible, not to summarize the page.
 
+COMPLETE JSON-LD PREFLIGHT (already collected deterministically):
+{json.dumps(jsonld_inventory, ensure_ascii=False, separators=(',', ':'))}
+
+Process this JSON-LD inventory FIRST and COMPLETELY. For any field satisfied by JSON-LD, return
+selector_type="jsonld" with an executable property path only. Do not return prose inside selector strings.
+Only fields not satisfied by JSON-LD should proceed to meta/visible DOM investigation.
+
 STRICT INVESTIGATION PRIORITIES:
-- Start with one browser_snapshot. Then use targeted browser_evaluate calls only where necessary.
-- You may click same-page controls that clearly expand comments/replies/load-more/show-more, but never open links or navigate.
-- Inspect the actual DOM hierarchy, stable attributes, JSON-LD/meta sources, repeated collections, and article containers.
-- For every field, execute/verify the proposed selector before returning it.
-- For each field return a primary selector and up to 6 candidate selectors/rules that resolve to the SAME intended value.
-- For collections, return the repeated item selector and relative item_fields. @href/@src/@text are valid direct item fields.
-- For body/full_text, verify the container contains all article paragraphs and excludes ads/related/comments/share/footer/navigation.
-- If evidence is ambiguous, perform another targeted inspection rather than guessing.
+- Start with the complete JSON-LD pass above.
+- Then use one browser_snapshot to understand the rendered page.
+- Then use targeted browser_evaluate calls to inspect the exact DOM around difficult fields. Batch multiple related fields in one evaluate call when practical.
+- You may click same-page controls that clearly expand comments/replies/load-more/show-more, then inspect the changed DOM. Never navigate to another URL.
+- For every field, execute/verify the exact extraction rule before returning it.
+- Spend extra inspection on weak or ambiguous fields rather than producing a plausible guess.
+- For each scalar field return a primary selector and up to 6 alternatives that resolve to the SAME value.
+- For collections, return the repeated item selector plus relative item_fields such as @href, @src and text.
+- For body/full_text, verify the container contains the COMPLETE article and excludes ads, related content, comments, sharing and navigation.
+- If JSON-LD/meta and visible DOM disagree, inspect both and report only the source that is actually consistent with the requested field.
 
 ANTI-HALLUCINATION:
 - found=true only after the browser confirms the field.
@@ -964,10 +1109,11 @@ RETURN ONLY JSON using the requested field schema. Keep samples short; never ret
             progress_cb=progress_cb,
             stage="analysis",
             max_rounds=settings.llm_discovery_max_rounds,
-            max_output_chars=12000,
+            max_output_chars=settings.llm_discovery_max_output_chars,
             max_tool_calls=settings.llm_discovery_max_tool_calls,
         )
         self.last_artifacts["analysis_response"] = analysis
+        self.last_artifacts["llm_trace"] = list(getattr(self.llm, "last_trace", []))
 
         fields, missing, proposed = self._validate_analysis(analysis, contract)
         by_path = {str(x.get("path")): x for x in (analysis.get("fields") or []) if isinstance(x, dict)}
@@ -990,10 +1136,11 @@ RETURN ONLY JSON using the requested field schema. Keep samples short; never ret
         threshold = settings.llm_confidence_threshold
         weak = self._weak_fields(fields, threshold)
         repair_attempts = 0
+        previous_weak_count = len(weak)
 
-        while weak and repair_attempts < 1:
+        while weak and repair_attempts < 2:
             repair_attempts += 1
-            await self._emit(progress_cb, "repair", f"{len(weak)} field(s) are below the {threshold:.0%} verification threshold; running one targeted retry.", meta={"paths": [f.path for f in weak]})
+            await self._emit(progress_cb, "repair", f"{len(weak)} field(s) are below the {threshold:.0%} verification threshold; running targeted retry {repair_attempts}/2.", meta={"paths": [f.path for f in weak], "attempt": repair_attempts})
             repair_contract = [f.model_dump() for f in weak]
             repair_user = f"""
 CURRENT URL: {url}
@@ -1017,10 +1164,11 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
                 progress_cb=progress_cb,
                 stage="repair",
                 max_rounds=settings.llm_repair_max_rounds,
-                max_output_chars=8000,
+                max_output_chars=settings.llm_repair_max_output_chars,
                 max_tool_calls=settings.llm_repair_max_tool_calls,
             )
             self.last_artifacts["repair_response"] = repair
+            self.last_artifacts.setdefault("llm_trace_repair", []).extend(list(getattr(self.llm, "last_trace", [])))
             repair_fields = repair.get("fields") if isinstance(repair, dict) else None
             if isinstance(repair_fields, list):
                 merged = {f.path: f for f in fields}
@@ -1046,6 +1194,11 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
                 v = verified.get(field.path) if isinstance(verified, dict) else None
                 field.confidence = self._field_confidence(field, by_path.get(field.path, {}), v if isinstance(v, dict) else {})
             weak = self._weak_fields(fields, threshold)
+            if weak and len(weak) >= previous_weak_count and repair_attempts >= 1:
+                # Do not burn another full agent loop when the previous targeted attempt did not improve coverage.
+                await self._emit(progress_cb, "repair", "Targeted retry did not improve the weak-field set; stopping repair to avoid a tool loop.", level="warning")
+                break
+            previous_weak_count = len(weak)
 
         # Final hallucination gate: model output is never allowed to override live verification.
         final_failures = [f.path for f in fields if f.required and (not f.found or f.confidence < threshold or not f.selector)]

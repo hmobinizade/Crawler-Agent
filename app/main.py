@@ -209,8 +209,8 @@ async def discover(req: DiscoverRequest):
     try:
         return await _execute_discovery(req)
     except RuntimeError as exc:
-        if str(exc).startswith('HOST_ALREADY_ANALYZED:'):
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # if str(exc).startswith('HOST_ALREADY_ANALYZED:'):
+        #     raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
