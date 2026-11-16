@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 from contextlib import AsyncExitStack
 from typing import Any
 
+from .mcp_launch import build_mcp_stdio_command
 from .settings import settings
 
 
@@ -40,10 +43,20 @@ class PlaywrightMCP:
             else:
                 raise RuntimeError(f"Unexpected MCP transport shape: {len(streams)} values")
         else:
-            params = StdioServerParameters(
-                command=settings.mcp_command,
-                args=list(settings.mcp_args),
-            )
+            command = settings.mcp_command
+            launch_args = list(settings.mcp_args)
+            # On Windows, npx.cmd lets cmd.exe write its copyright banner onto
+            # stdout. Resolving node.exe + the package bin can install the
+            # package, so keep that work off the event loop.
+            if sys.platform == "win32":
+                command, launch_args = await asyncio.to_thread(
+                    build_mcp_stdio_command,
+                    command,
+                    launch_args,
+                )
+            else:
+                command, launch_args = build_mcp_stdio_command(command, launch_args)
+            params = StdioServerParameters(command=command, args=launch_args)
             read_stream, write_stream = await self.stack.enter_async_context(stdio_client(params))
 
         self.session = await self.stack.enter_async_context(ClientSession(read_stream, write_stream))
