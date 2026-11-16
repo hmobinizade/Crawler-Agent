@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from typing import Any, Awaitable, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from .llm import OpenAICompatibleLLM
 from .mcp_client import MCPToolError, PlaywrightMCP, emit, page_meta_from_tool_output, snapshot_summary, unwrap_mcp_payload
@@ -595,6 +595,7 @@ class ExtractorAgent:
         self.llm = OpenAICompatibleLLM()
         self.last_artifacts: dict[str, Any] = {}
         self.page_state: dict[str, Any] = {}
+        self.requested_url = ""
 
     @staticmethod
     def _mcp_tool_def(tool: Any) -> dict[str, Any]:
@@ -884,6 +885,13 @@ class ExtractorAgent:
         async def executor(name: str, args: dict[str, Any]) -> Any:
             if name not in AGENT_BROWSER_TOOLS:
                 raise RuntimeError(f"Tool not allowed in analysis phase: {name}")
+            if name == "browser_navigate":
+                target = str((args or {}).get("url") or "").strip()
+                requested = str(self.requested_url or "").strip()
+                if not requested or not self._same_requested_page(requested, target):
+                    detail = f"browser_navigate refused: analysis is bound to {requested or 'the requested URL'}; refused {target or 'an empty URL'}"
+                    emit("MCP_ERROR", {"phase": "agent_navigate", "tool": name, "error": detail[:800], "requested_url": requested, "target_url": target[:500]})
+                    raise RuntimeError(detail)
             return await self.browser.call(name, args)
 
         async def on_event(kind: str, data: dict[str, Any]) -> None:
@@ -1291,6 +1299,23 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
         return requested_host == current_host
 
     @classmethod
+    def _same_requested_page(cls, requested: str, candidate: str) -> bool:
+        """True when candidate is the same http(s) document as the requested URL."""
+        req = urlparse((requested or "").strip())
+        cur = urlparse((candidate or "").strip())
+        if req.scheme not in {"http", "https"} or cur.scheme != req.scheme:
+            return False
+        if not cls._hosts_match(requested, candidate):
+            return False
+        req_path = (req.path or "/").rstrip("/") or "/"
+        cur_path = (cur.path or "/").rstrip("/") or "/"
+        if req_path != cur_path:
+            return False
+        req_query = tuple(sorted(parse_qsl(req.query, keep_blank_values=True)))
+        cur_query = tuple(sorted(parse_qsl(cur.query, keep_blank_values=True)))
+        return req_query == cur_query
+
+    @classmethod
     def _observation_from_payload(cls, payload: Any) -> dict[str, Any]:
         data = cls._coerce_mcp_payload(payload)
         if isinstance(data, dict) and any(key in data for key in ("url", "title", "ready")):
@@ -1424,6 +1449,7 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
 
     async def inspect(self, url: str, template: dict[str, Any], navigate: bool = True, progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None) -> DiscoveryResult:
         contract = flatten_template(template)
+        self.requested_url = url
         try:
             if navigate or not self.page_state:
                 await self.open_page(url, progress_cb=progress_cb)

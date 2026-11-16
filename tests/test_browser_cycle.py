@@ -260,3 +260,30 @@ def test_confirmed_page_uses_browser_title_and_calls_navigate_before_snapshot():
     assert "Example Domain" in str(llm.snapshot)
     assert "Example Domain" in agent.page_state["snapshot"]
     assert agent.page_state["url"] == "https://example.com/"
+
+
+def test_agent_navigation_cannot_leave_the_requested_url():
+    browser = ScriptedBrowser()
+    agent = ExtractorAgent()
+    agent.browser = browser
+    agent.requested_url = "https://example.com/article/1"
+    seen: dict[str, str] = {}
+
+    class ProbeLLM:
+        async def chat_with_tools(self, system, user, tools, executor, max_rounds, max_tool_output_chars, max_repeated_tool_calls, max_tool_calls=None, round_delay_seconds=0.0, on_event=None):
+            for target in ("https://evil.test/phish", "https://example.com/other", "javascript:alert(1)"):
+                try:
+                    await executor("browser_navigate", {"url": target})
+                except RuntimeError as exc:
+                    seen[target] = str(exc)
+            await executor("browser_navigate", {"url": "https://WWW.example.com/article/1/"})
+            return {"page_title": "Example", "anti_bot_state": "NONE", "fields": [], "proposed_json": {}, "evidence": [], "crawler_notes": []}
+
+    agent.llm = ProbeLLM()
+    asyncio.run(agent._run_tool_agent(system="analysis", user="page", tools=[], progress_cb=None, stage="analysis", max_rounds=1))
+    assert "evil.test" in seen["https://evil.test/phish"]
+    assert "example.com/other" in seen["https://example.com/other"]
+    assert "javascript:alert(1)" in seen["javascript:alert(1)"]
+    assert [args.get("url") for name, args in browser.calls if name == "browser_navigate"] == ["https://WWW.example.com/article/1/"]
+    assert ExtractorAgent._same_requested_page("https://example.com", "https://www.example.com/")
+    assert not ExtractorAgent._same_requested_page("https://example.com/a", "https://example.com/a?id=2")
