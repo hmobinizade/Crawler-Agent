@@ -34,6 +34,7 @@ _NPX_NAMES = {"npx", "npx.cmd", "npx.exe", "npx.ps1"}
 _YES_FLAGS = {"-y", "--yes"}
 _JS_SUFFIXES = {".js", ".cjs", ".mjs"}
 _INSTALL_TIMEOUT_SECONDS = 600
+_EXACT_VERSION = re.compile(r"^v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$")
 _locks_guard = threading.Lock()
 _spec_locks: dict[str, threading.Lock] = {}
 
@@ -86,6 +87,25 @@ def split_npx_args(args: Sequence[str]) -> tuple[str, list[str]]:
     return args[index], list(args[index + 1 :])
 
 
+def requested_exact_version(spec: str) -> str | None:
+    """Return an exact semver pin, or None for tags, ranges, and bare names.
+
+    ``@playwright/mcp@0.0.41`` is exact. ``@latest``, ``@^0.0.41``, and a name
+    with no version are not: a copy already on disk cannot be proven to be the
+    version npm would install, so those specs must go through ``npm install``.
+    """
+    text = spec.strip()
+    if text.startswith("@") and "/" in text:
+        version = text[1:].split("/", 1)[1].partition("@")[2]
+    else:
+        version = text.partition("@")[2]
+    version = version.strip().lstrip("=").strip()
+    match = _EXACT_VERSION.match(version)
+    if not match:
+        return None
+    return match.group(1)
+
+
 def npm_package_name(spec: str) -> str:
     """Drop the version from ``@scope/name@version`` or ``name@version``."""
     text = spec.strip()
@@ -113,7 +133,14 @@ def resolve_mcp_cli(
     package_name = npm_package_name(package_spec)
     with _lock_for(package_spec):
         search_roots = list(roots) if roots is not None else _default_search_roots(package_spec)
-        found = find_installed_cli(package_name, search_roots)
+        # Only an exact pin can be satisfied from disk. @latest and ranges stay
+        # stale if the first matching package name is reused.
+        required_version = requested_exact_version(package_spec)
+        found = (
+            find_installed_cli(package_name, search_roots, required_version=required_version)
+            if required_version is not None
+            else None
+        )
         if found:
             return found
         prefix = install_prefix or _install_prefix(package_spec)
@@ -127,10 +154,21 @@ def resolve_mcp_cli(
         )
 
 
-def find_installed_cli(package_name: str, roots: Sequence[Path]) -> str | None:
-    """Return a package bin under one of ``roots`` if it is already on disk."""
+def find_installed_cli(
+    package_name: str,
+    roots: Sequence[Path],
+    *,
+    required_version: str | None = None,
+) -> str | None:
+    """Return a package bin under one of ``roots`` if it is already on disk.
+
+    When ``required_version`` is set, ``package.json`` must declare that exact
+    version. A directory for the same package name at another version is skipped.
+    """
     for root in roots:
         package_dir = root / "node_modules" / Path(*package_name.split("/"))
+        if required_version is not None and _package_version(package_dir) != required_version:
+            continue
         cli = cli_from_package_dir(package_dir)
         if cli:
             return str(cli)
@@ -139,14 +177,8 @@ def find_installed_cli(package_name: str, roots: Sequence[Path]) -> str | None:
 
 def cli_from_package_dir(package_dir: Path) -> Path | None:
     """Read ``package.json`` ``bin`` and return the existing script, if any."""
-    meta_path = package_dir / "package.json"
-    if not meta_path.is_file():
-        return None
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(meta, dict):
+    meta = _package_meta(package_dir)
+    if meta is None:
         return None
     relative = _bin_relative(meta.get("bin"))
     if not relative:
@@ -285,6 +317,33 @@ def _node_executable(explicit: str | None) -> str | None:
     if resolved and Path(resolved).suffix.lower() == ".exe":
         return resolved
     return None
+
+
+def _package_meta(package_dir: Path) -> dict[str, Any] | None:
+    meta_path = package_dir / "package.json"
+    if not meta_path.is_file():
+        return None
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    return meta
+
+
+def _package_version(package_dir: Path) -> str | None:
+    meta = _package_meta(package_dir)
+    if meta is None:
+        return None
+    version = meta.get("version")
+    if not isinstance(version, str):
+        return None
+    version = version.strip()
+    match = _EXACT_VERSION.match(version)
+    if not match:
+        return None
+    return match.group(1)
 
 
 def _bin_relative(bin_field: object) -> str | None:

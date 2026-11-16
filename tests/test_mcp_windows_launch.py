@@ -8,6 +8,7 @@ from app.mcp_launch import (
     cli_from_package_dir,
     find_npm_cli,
     npm_package_name,
+    requested_exact_version,
     resolve_mcp_cli,
     split_npx_args,
 )
@@ -16,11 +17,11 @@ from app.mcp_launch import (
 DEFAULT_ARGS = ["@playwright/mcp@latest", "--user-data-dir", ".browser-profile"]
 
 
-def _write_package(root: Path, package_name: str, bin_field) -> Path:
+def _write_package(root: Path, package_name: str, bin_field, version: str = "0.0.41") -> Path:
     package_dir = root / "node_modules" / Path(*package_name.split("/"))
     package_dir.mkdir(parents=True)
     (package_dir / "package.json").write_text(
-        json.dumps({"name": package_name, "bin": bin_field}),
+        json.dumps({"name": package_name, "version": version, "bin": bin_field}),
         encoding="utf-8",
     )
     relative = bin_field if isinstance(bin_field, str) else bin_field["playwright-mcp"]
@@ -28,6 +29,15 @@ def _write_package(root: Path, package_name: str, bin_field) -> Path:
     cli.parent.mkdir(parents=True, exist_ok=True)
     cli.write_text("#!/usr/bin/env node\n", encoding="utf-8")
     return cli
+
+
+def test_requested_exact_version_rejects_tags_and_ranges():
+    assert requested_exact_version("@playwright/mcp@0.0.41") == "0.0.41"
+    assert requested_exact_version("@playwright/mcp@v0.0.41") == "0.0.41"
+    assert requested_exact_version("left-pad@1.2.3") == "1.2.3"
+    assert requested_exact_version("@playwright/mcp@latest") is None
+    assert requested_exact_version("@playwright/mcp@^0.0.41") is None
+    assert requested_exact_version("@playwright/mcp") is None
 
 
 def test_npm_package_name_strips_version():
@@ -127,15 +137,20 @@ def test_windows_npx_without_node_explains_the_banner(monkeypatch):
         build_mcp_stdio_command("npx.cmd", DEFAULT_ARGS, platform="win32", node_executable=None)
 
 
-def test_existing_install_is_reused(tmp_path):
-    cli = _write_package(tmp_path, "@playwright/mcp", {"playwright-mcp": "cli.js", "other": "other.js"})
+def test_existing_install_is_reused_when_version_matches(tmp_path):
+    cli = _write_package(
+        tmp_path,
+        "@playwright/mcp",
+        {"playwright-mcp": "cli.js", "other": "other.js"},
+        version="0.0.41",
+    )
     (tmp_path / "node_modules" / "@playwright" / "mcp" / "other.js").write_text("", encoding="utf-8")
 
     def fail_run(*args, **kwargs):
-        raise AssertionError("npm install should not run when the bin is already present")
+        raise AssertionError("npm install should not run when the pinned version is present")
 
     resolved = resolve_mcp_cli(
-        "@playwright/mcp@latest",
+        "@playwright/mcp@0.0.41",
         roots=[tmp_path],
         run=fail_run,
     )
@@ -143,16 +158,77 @@ def test_existing_install_is_reused(tmp_path):
     assert cli_from_package_dir(cli.parent) == cli.resolve()
 
 
-def test_existing_npx_cache_is_reused(tmp_path, monkeypatch):
+def test_pinned_version_does_not_reuse_a_different_install(tmp_path):
+    stale = tmp_path / "stale"
+    _write_package(stale, "@playwright/mcp", "cli.js", version="0.0.1")
+    prefix = tmp_path / "prefix"
+    node = tmp_path / "node.exe"
+    node.write_text("", encoding="utf-8")
+    npm_cli = tmp_path / "npm-cli.js"
+    npm_cli.write_text("", encoding="utf-8")
+
+    def fake_run(argv, **kwargs):
+        assert argv[-1] == "@playwright/mcp@0.0.41"
+        _write_package(prefix, "@playwright/mcp", "cli.js", version="0.0.41")
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Completed()
+
+    resolved = resolve_mcp_cli(
+        "@playwright/mcp@0.0.41",
+        roots=[stale],
+        install_prefix=prefix,
+        node=str(node),
+        npm_cli=npm_cli,
+        run=fake_run,
+    )
+    assert "/stale/" not in resolved.replace("\\", "/")
+    assert resolved.replace("\\", "/").endswith("/node_modules/@playwright/mcp/cli.js")
+
+
+def test_latest_does_not_reuse_a_stale_cache(tmp_path):
+    _write_package(tmp_path, "@playwright/mcp", "cli.js", version="0.0.1")
+    prefix = tmp_path / "prefix"
+    node = tmp_path / "node.exe"
+    node.write_text("", encoding="utf-8")
+    npm_cli = tmp_path / "npm-cli.js"
+    npm_cli.write_text("", encoding="utf-8")
+    seen = []
+
+    def fake_run(argv, **kwargs):
+        seen.append(argv[-1])
+        _write_package(prefix, "@playwright/mcp", "cli.js", version="0.0.85")
+        class Completed:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return Completed()
+
+    resolve_mcp_cli(
+        "@playwright/mcp@latest",
+        roots=[tmp_path],
+        install_prefix=prefix,
+        node=str(node),
+        npm_cli=npm_cli,
+        run=fake_run,
+    )
+    assert seen == ["@playwright/mcp@latest"]
+
+
+def test_existing_npx_cache_is_reused_for_the_same_version(tmp_path, monkeypatch):
     cache = tmp_path / "npm-cache" / "_npx" / "hashed"
-    _write_package(cache, "@playwright/mcp", "cli.js")
+    _write_package(cache, "@playwright/mcp", "cli.js", version="0.0.41")
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
+    monkeypatch.delenv("npm_config_cache", raising=False)
+    monkeypatch.delenv("NPM_CONFIG_CACHE", raising=False)
 
     def fail_run(*args, **kwargs):
         raise AssertionError("npm install should reuse the npx cache")
 
-    resolved = resolve_mcp_cli("@playwright/mcp@latest", run=fail_run)
+    resolved = resolve_mcp_cli("@playwright/mcp@0.0.41", run=fail_run)
     assert resolved.replace("\\", "/").endswith("/node_modules/@playwright/mcp/cli.js")
 
 
