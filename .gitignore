@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .env
 .browser-profile/
+.playwright-mcp/
 generated/*
 .pytest_cache/

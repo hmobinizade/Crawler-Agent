@@ -1,15 +1,32 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 from .llm import OpenAICompatibleLLM
-from .mcp_client import PlaywrightMCP
+from .mcp_client import MCPToolError, PlaywrightMCP, emit, page_meta_from_tool_output, snapshot_summary, unwrap_mcp_payload
 from .models import DiscoveryResult, FieldPlan
 from .prompts import DISCOVERY_SYSTEM, RECON_SYSTEM, FIELD_SYSTEM, SYNTHESIS_SYSTEM, REPAIR_SYSTEM
 from .settings import settings
+
+AGENT_BROWSER_TOOLS = (
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_evaluate",
+    "browser_click",
+    "browser_wait_for",
+)
+REQUIRED_BROWSER_TOOLS = ("browser_navigate", "browser_snapshot", "browser_evaluate")
+PAGE_STATE_JS = r"""() => ({
+  title: document.title || "",
+  url: location.href,
+  ready: document.readyState,
+  textLength: ((document.body && document.body.innerText) || "").trim().length,
+  heading: ((document.querySelector("h1") && document.querySelector("h1").innerText) || "").trim()
+})"""
 
 DIRECT_TOOL_SYSTEM = r"""
 You are a senior web-forensics and extraction engineer.
@@ -31,9 +48,11 @@ script[type="application/ld+json"] blocks on the current page.
 - JSON-LD selector candidates must likewise be executable property paths, never prose.
 
 ALLOWED BEHAVIOR
+- The requested URL is already open. browser_snapshot reads the current page; it does not open a URL.
+- Use browser_navigate only to reopen the same requested URL when the page is blank. Never open a different URL.
 - Use browser_snapshot and browser_evaluate to inspect the current page.
 - You may click ONLY same-page controls that clearly expand comments, replies, load more, show more, or disclosures.
-- Never navigate, reload, go back, go forward, or open another page.
+- Never reload, go back, go forward, or open another page.
 
 WORK IN THIS ORDER
 1. Complete the JSON-LD pass.
@@ -575,6 +594,7 @@ class ExtractorAgent:
         self.browser = PlaywrightMCP()
         self.llm = OpenAICompatibleLLM()
         self.last_artifacts: dict[str, Any] = {}
+        self.page_state: dict[str, Any] = {}
 
     @staticmethod
     def _mcp_tool_def(tool: Any) -> dict[str, Any]:
@@ -592,12 +612,7 @@ class ExtractorAgent:
 
     @staticmethod
     def _tool_is_allowed(name: str) -> bool:
-        low = str(name or "").lower()
-        blocked_tokens = (
-            "navigate", "reload", "go_back", "back", "forward", "close",
-            "new_page", "new_tab", "tabs", "connect", "save_storage_state"
-        )
-        return bool(low) and not any(token in low for token in blocked_tokens)
+        return str(name or "") in AGENT_BROWSER_TOOLS
 
     @staticmethod
     def _normalize_jsonld_rule(value: Any) -> tuple[str | None, bool]:
@@ -733,6 +748,7 @@ class ExtractorAgent:
 
     @staticmethod
     def _coerce_mcp_payload(payload: Any) -> Any:
+        payload = unwrap_mcp_payload(payload)
         if isinstance(payload, dict):
             for key in ("structuredContent", "structured_content", "result", "data"):
                 value = payload.get(key)
@@ -842,24 +858,16 @@ class ExtractorAgent:
             await cb(stage, message, payload)
 
     async def _get_browser_tool_defs(self) -> list[dict[str, Any]]:
-        """Expose MCP browser tools except tools that can change the browsing target/session."""
+        """Expose the browser tools the agent is allowed to call, including navigation."""
         tools = await self.browser.list_tools()
-        blocked_tokens = (
-            "navigate", "reload", "go_back", "back", "forward", "close",
-            "new_page", "new_tab", "tabs", "connect", "save_storage_state"
-        )
-        selected = []
-        for tool in tools:
-            name = str(getattr(tool, "name", ""))
-            if not name:
-                continue
-            low = name.lower()
-            if any(token in low for token in blocked_tokens):
-                continue
-            if not (low.startswith("browser_") or low.startswith("playwright_")):
-                continue
-            selected.append(tool)
-        return [self._mcp_tool_def(t) for t in selected]
+        by_name = {str(getattr(tool, "name", "")): tool for tool in tools if getattr(tool, "name", "")}
+        missing = [name for name in REQUIRED_BROWSER_TOOLS if name not in by_name]
+        if missing:
+            message = "Playwright MCP did not expose required browser tools: " + ", ".join(missing)
+            emit("MCP_ERROR", {"phase": "required_tools", "missing": missing, "error": message})
+            raise RuntimeError(message)
+        selected = [by_name[name] for name in AGENT_BROWSER_TOOLS if name in by_name]
+        return [self._mcp_tool_def(tool) for tool in selected]
 
     async def _run_tool_agent(
         self,
@@ -874,7 +882,7 @@ class ExtractorAgent:
         max_tool_calls: int | None = None,
     ) -> dict[str, Any]:
         async def executor(name: str, args: dict[str, Any]) -> Any:
-            if name not in {"browser_snapshot", "browser_evaluate", "browser_click"}:
+            if name not in AGENT_BROWSER_TOOLS:
                 raise RuntimeError(f"Tool not allowed in analysis phase: {name}")
             return await self.browser.call(name, args)
 
@@ -1041,8 +1049,8 @@ class ExtractorAgent:
             source_html = self._coerce_source(source_raw)
         except Exception as exc:
             raise RuntimeError(f"Playwright MCP source capture failed: {exc}") from exc
-        if not source_html.strip():
-            raise RuntimeError("Playwright returned an empty rendered HTML source")
+        if not source_html.strip() or "<" not in source_html:
+            raise RuntimeError(f"Playwright did not return rendered HTML. Got: {source_html[:180]!r}")
         self.last_artifacts["source_html"] = source_html
 
         try:
@@ -1059,9 +1067,18 @@ class ExtractorAgent:
         if not tool_defs:
             raise RuntimeError("Playwright MCP did not expose browser_snapshot/browser_evaluate/browser_click tools")
 
+        observed = self.page_state or {}
+        observed_url = str(observed.get("url") or url)
+        observed_title = str(observed.get("title") or "")
+        observed_snapshot = str(observed.get("snapshot") or "")
         direct_user = f"""
-CURRENT URL: {url}
+CURRENT URL: {observed_url}
+REQUESTED URL: {url}
+PAGE TITLE: {observed_title}
 HOST: {host}
+
+OBSERVED PAGE (browser_navigate already ran; browser_snapshot is evidence, not a substitute for navigation):
+{observed_snapshot[:12000]}
 
 AUTHORITATIVE JSON TEMPLATE:
 {json.dumps(template, ensure_ascii=False, separators=(',', ':'))}
@@ -1070,7 +1087,8 @@ REQUIRED LEAF CONTRACT:
 {json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
 
 You have a real Playwright browser for the CURRENT page. Investigate it yourself with the available tools.
-Do NOT navigate away. The purpose is to build the most accurate Extraction Structure possible, not to summarize the page.
+browser_navigate is available, but the requested URL is already open. browser_snapshot does not open a URL.
+Do NOT navigate to a different URL. The purpose is to build the most accurate Extraction Structure possible, not to summarize the page.
 
 COMPLETE JSON-LD PREFLIGHT (already collected deterministically):
 {json.dumps(jsonld_inventory, ensure_ascii=False, separators=(',', ':'))}
@@ -1220,11 +1238,28 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
         }
 
         await self._emit(progress_cb, "finalize", f"Analysis complete: {status}. {len(fields)-len(final_failures)}/{len(fields)} fields are >= {threshold:.0%} verified confidence.")
+        browser_title = str((self.page_state or {}).get("title") or "")
+        page_title = browser_title or str(analysis.get("page_title") or "")
+        found_count = len([field for field in fields if field.found])
+        emit(
+            "EXTRACTION_RESULT",
+            {
+                "status": status,
+                "url": str((self.page_state or {}).get("url") or url),
+                "title": page_title,
+                "requested_url": url,
+                "fields": len(fields),
+                "found": found_count,
+                "missing": final_failures,
+                "page_confirmed": bool(self.page_state),
+                "session_alive": getattr(self.browser, "session", None) is not None,
+            },
+        )
         return DiscoveryResult(
             status=status,
             host=host,
             url=url,
-            page_title=str(analysis.get("page_title") or ""),
+            page_title=page_title,
             anti_bot_state=anti_bot_state,
             method="playwright",
             method_reason="Playwright MCP direct-agent analysis with bounded tool budget, strict verification, and a 95% confidence retry gate.",
@@ -1247,11 +1282,163 @@ Do not revisit strong fields. Do not navigate. Do not invent a value. Return cor
             ],
         )
 
-    async def open_page(self, url: str) -> None:
-        await self.browser.call("browser_navigate", {"url": url})
+    @staticmethod
+    def _hosts_match(requested: str, current: str) -> bool:
+        requested_host = urlparse(requested).netloc.lower().split(":", 1)[0].removeprefix("www.")
+        current_host = urlparse(current).netloc.lower().split(":", 1)[0].removeprefix("www.")
+        if not requested_host or not current_host:
+            return False
+        return requested_host == current_host
+
+    @classmethod
+    def _observation_from_payload(cls, payload: Any) -> dict[str, Any]:
+        data = cls._coerce_mcp_payload(payload)
+        if isinstance(data, dict) and any(key in data for key in ("url", "title", "ready")):
+            text_length = data.get("textLength", data.get("text_length", 0))
+            try:
+                text_length = int(text_length or 0)
+            except (TypeError, ValueError):
+                text_length = 0
+            return {
+                "url": str(data.get("url") or ""),
+                "title": str(data.get("title") or "").strip(),
+                "ready": str(data.get("ready") or ""),
+                "text_length": text_length,
+                "heading": str(data.get("heading") or "").strip(),
+            }
+        meta = page_meta_from_tool_output(payload if isinstance(payload, str) else data)
+        return {
+            "url": meta.get("url") or "",
+            "title": (meta.get("title") or "").strip(),
+            "ready": "",
+            "text_length": 0,
+            "heading": "",
+        }
+
+    def _reject_unopened_page(self, requested: str, state: dict[str, Any], snapshot: Any) -> None:
+        current = str(state.get("url") or "")
+        title = str(state.get("title") or "").strip()
+        snap = snapshot if isinstance(snapshot, str) else json.dumps(snapshot, ensure_ascii=False)
+        problems: list[str] = []
+        if not current or current.startswith(("about:", "chrome-error:", "chrome:", "devtools:")):
+            problems.append(f"browser URL is {current or 'empty'}")
+        elif not self._hosts_match(requested, current):
+            problems.append(f"host mismatch requested={urlparse(requested).netloc} current={urlparse(current).netloc}")
+        if len(snap.strip()) < 20:
+            problems.append("browser_snapshot was empty")
+        if not title and int(state.get("text_length") or 0) <= 0 and "Page Title:" not in snap:
+            problems.append("page has no title and no text")
+        if problems:
+            detail = "; ".join(problems)
+            emit(
+                "MCP_ERROR",
+                {
+                    "phase": "page_check",
+                    "requested_url": requested,
+                    "current_url": current,
+                    "title": title,
+                    "error": detail,
+                    "snapshot": snapshot_summary(snap),
+                    "session_alive": getattr(self.browser, "session", None) is not None,
+                },
+            )
+            raise RuntimeError(f"Browser did not open the requested page: {detail}")
+
+    async def _read_page_state(self) -> dict[str, Any]:
+        payload = await self.browser.call("browser_evaluate", {"function": PAGE_STATE_JS})
+        return self._observation_from_payload(payload)
+
+    async def _wait_for_page(self, requested: str) -> dict[str, Any]:
+        state = await self._read_page_state()
+        for _ in range(8):
+            ready = str(state.get("ready") or "")
+            if state.get("url") and ready in {"", "interactive", "complete"} and (ready in {"interactive", "complete"} or state.get("title") or state.get("text_length")):
+                if self._hosts_match(requested, str(state.get("url") or "")):
+                    return state
+            await asyncio.sleep(0.25)
+            state = await self._read_page_state()
+        return state
+
+    async def open_page(self, url: str, progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None) -> dict[str, Any]:
+        """Connect, require navigation tools, open the URL, then snapshot the loaded page."""
+        await self._emit(progress_cb, "browser_prepare", "Connecting Playwright MCP and checking browser tools.")
+        try:
+            await self._get_browser_tool_defs()
+            nav = await self.browser.call("browser_navigate", {"url": url})
+            nav_state = self._observation_from_payload(nav)
+            state = await self._wait_for_page(url)
+            if not state.get("url"):
+                state["url"] = nav_state.get("url") or ""
+            if not state.get("title"):
+                state["title"] = nav_state.get("title") or ""
+            snapshot = await self.browser.call("browser_snapshot", {})
+        except MCPToolError as exc:
+            emit("MCP_ERROR", {"phase": "open_page", "tool": exc.tool, "error": exc.detail[:800], "requested_url": url})
+            raise RuntimeError(f"Browser navigation failed for {url}: {exc.detail}") from exc
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            emit("MCP_ERROR", {"phase": "open_page", "error": str(exc)[:800], "requested_url": url})
+            raise RuntimeError(f"Browser navigation failed for {url}: {exc}") from exc
+
+        self._reject_unopened_page(url, state, snapshot)
+        snap_text = snapshot if isinstance(snapshot, str) else json.dumps(snapshot, ensure_ascii=False)
+        summary = snapshot_summary(snap_text)
+        state = {**state, "snapshot": snap_text, "snapshot_summary": summary, "requested_url": url}
+        self.page_state = state
+        self.last_artifacts["page_state"] = {key: value for key, value in state.items() if key != "snapshot"}
+        self.last_artifacts["page_state"]["snapshot_summary"] = summary
+        title = str(state.get("title") or "")
+        if title and title not in snap_text:
+            emit(
+                "MCP_ERROR",
+                {
+                    "phase": "snapshot_title",
+                    "error": f"snapshot did not include page title {title!r}",
+                    "current_url": state.get("url"),
+                    "snapshot": summary,
+                },
+            )
+            raise RuntimeError(f"Browser snapshot did not include the page title {title!r}")
+        await self._emit(
+            progress_cb,
+            "browser_prepare",
+            f"Browser opened {state.get('url')} ({title or 'untitled'}).",
+            {"url": state.get("url"), "title": title, "snapshot_chars": summary["chars"]},
+        )
+        return state
+
+    async def _ensure_page_still_open(self, url: str, progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None) -> dict[str, Any]:
+        try:
+            state = await self._read_page_state()
+            snapshot = await self.browser.call("browser_snapshot", {})
+        except Exception as exc:
+            emit("MCP_ERROR", {"phase": "page_recheck", "error": str(exc)[:800], "requested_url": url, "session_alive": getattr(self.browser, "session", None) is not None})
+            raise RuntimeError(f"Browser session is not on the requested page: {exc}") from exc
+        self._reject_unopened_page(url, state, snapshot)
+        snap_text = snapshot if isinstance(snapshot, str) else json.dumps(snapshot, ensure_ascii=False)
+        state = {**state, "snapshot": snap_text, "snapshot_summary": snapshot_summary(snap_text), "requested_url": url}
+        self.page_state = state
+        await self._emit(progress_cb, "browser_prepare", f"Browser is still on {state.get('url')} ({state.get('title') or 'untitled'}).")
+        return state
 
     async def inspect(self, url: str, template: dict[str, Any], navigate: bool = True, progress_cb: Callable[[str, str, dict[str, Any] | None], Awaitable[None]] | None = None) -> DiscoveryResult:
-        contract=flatten_template(template)
-        if navigate:
-            await self.open_page(url)
+        contract = flatten_template(template)
+        try:
+            if navigate or not self.page_state:
+                await self.open_page(url, progress_cb=progress_cb)
+            else:
+                await self._ensure_page_still_open(url, progress_cb=progress_cb)
+        except Exception as exc:
+            emit(
+                "EXTRACTION_RESULT",
+                {
+                    "status": "FAILED",
+                    "requested_url": url,
+                    "error": str(exc)[:800],
+                    "page_confirmed": False,
+                    "session_alive": getattr(self.browser, "session", None) is not None,
+                },
+            )
+            raise
         return await self._inspect_with_mcp(url, template, contract, progress_cb=progress_cb)
